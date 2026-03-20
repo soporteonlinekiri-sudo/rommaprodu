@@ -24,7 +24,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Token no configurado" });
   }
 
-  const BASE_URL = "https://rommaprodu-npko-git-main-agustins-projects-0bded454.vercel.app";
+  const BASE_URL = "https://rommaprodu-npko.vercel.app";
 
   try {
     const mpRes = await fetch("https://api.mercadopago.com/checkout/preferences", {
