@@ -198,6 +198,34 @@ const base  = { minHeight:"100vh", background:C.vino, display:"flex", flexDirect
 const inner = { width:"100%", maxWidth:420 };
 
 /* ════════════════ APP ════════════════ */
+/* ════ PayShell — componente global (fuera de App para evitar re-mounts) ════ */
+function PayShell({children, onBack, cfg, heroB64}) {
+  var bgImg = cfg && cfg.heroBanner
+    ? "data:image/jpeg;base64," + cfg.heroBanner
+    : "data:image/jpeg;base64," + heroB64;
+  return (
+    <div style={{ fontFamily:"Rubik",minHeight:"100vh",position:"relative" }}>
+      <style>{`
+        .ps-bg{position:fixed;top:0;left:0;right:0;bottom:0;z-index:0;background-size:cover;background-position:35% center;filter:blur(20px) brightness(.28);transform:scale(1.08)}
+        .ps-ov{position:fixed;top:0;left:0;right:0;bottom:0;z-index:1;background:rgba(4,1,4,.45)}
+        .ps-wrap{position:relative;z-index:2;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px 18px}
+        .ps-modal{width:100%;max-width:420px;background:rgba(10,4,8,.92);backdrop-filter:blur(36px);-webkit-backdrop-filter:blur(36px);border:1px solid rgba(245,239,224,.1);border-radius:20px;padding:28px 24px 30px;max-height:94vh;overflow-y:auto}
+        .ps-modal::-webkit-scrollbar{width:3px}
+        .ps-modal::-webkit-scrollbar-thumb{background:rgba(245,239,224,.12);border-radius:2px}
+        .ps-back{background:none;border:none;color:rgba(245,239,224,.38);cursor:pointer;font-size:10px;font-family:Rubik,sans-serif;font-weight:500;letter-spacing:2px;text-transform:uppercase;margin-bottom:24px;padding:0;display:flex;align-items:center;gap:7px}
+      `}</style>
+      <div className="ps-bg" style={{ backgroundImage:`url(${bgImg})` }} />
+      <div className="ps-ov" />
+      <div className="ps-wrap">
+        <div className="ps-modal">
+          <button className="ps-back" onClick={onBack}>← Volver</button>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [view,     setView]     = useState("landing");
   const [reservas, setReservas] = useState([]);
@@ -539,32 +567,10 @@ function App() {
   );
 
   /* ════ PAYSHELL + SCREENS ════ */
-  const PayShell = ({children,onBack}) => (
-    <div style={{ fontFamily:"Rubik",minHeight:"100vh",position:"relative" }}>
-      <style>{GF}</style>
-      <style>{`
-        .ps-bg{position:fixed;top:0;left:0;right:0;bottom:0;z-index:0;background-size:cover;background-position:35% center;filter:blur(20px) brightness(.28);transform:scale(1.08)}
-        .ps-ov{position:fixed;top:0;left:0;right:0;bottom:0;z-index:1;background:rgba(4,1,4,.45)}
-        .ps-wrap{position:relative;z-index:2;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px 18px}
-        .ps-modal{width:100%;max-width:420px;background:rgba(10,4,8,.92);backdrop-filter:blur(36px);-webkit-backdrop-filter:blur(36px);border:1px solid rgba(245,239,224,.1);border-radius:20px;padding:28px 24px 30px;max-height:94vh;overflow-y:auto}
-        .ps-modal::-webkit-scrollbar{width:3px}
-        .ps-modal::-webkit-scrollbar-thumb{background:rgba(245,239,224,.12);border-radius:2px}
-        .ps-back{background:none;border:none;color:rgba(245,239,224,.38);cursor:pointer;font-size:10px;font-family:Rubik,sans-serif;font-weight:500;letter-spacing:2px;text-transform:uppercase;margin-bottom:24px;padding:0;display:flex;align-items:center;gap:7px}
-      `}</style>
-      <div className="ps-bg" style={{ backgroundImage:`url(${cfg.heroBanner?"data:image/jpeg;base64,"+cfg.heroBanner:"data:image/jpeg;base64,"+HERO_B64})` }} />
-      <div className="ps-ov" />
-      <div className="ps-wrap">
-        <div className="ps-modal">
-          <button className="ps-back" onClick={onBack}>← Volver</button>
-          {children}
-        </div>
-      </div>
-    </div>
-  );
 
   /* ════ FORM ════ */
   if (view==="form") return (
-    <PayShell onBack={goHome}>
+    <PayShell onBack={goHome} cfg={cfg} heroB64={HERO_B64}>
       <div style={{ marginBottom:24 }}>
         <div style={{ fontFamily:"Rubik",fontSize:20,fontWeight:700,color:C.cream,marginBottom:3 }}>{cfg.eventoNombre||"La Guitarreada"}</div>
         <div style={{ fontFamily:"Rubik",fontSize:9,color:C.muted,letterSpacing:2,textTransform:"uppercase" }}>{cfg.eventoDia||"Sábado"} {cfg.eventoFechaCorta||"18.04"} · {cfg.eventoHora||"22hs"}</div>
@@ -593,7 +599,7 @@ function App() {
 
   /* ════ CHOOSE PAYMENT ════ */
   if (view==="choose-payment") return (
-    <PayShell onBack={()=>go("form")}>
+    <PayShell onBack={()=>go("form")} cfg={cfg} heroB64={HERO_B64}>
       <div style={{ marginBottom:22 }}>
         <div style={{ fontFamily:"Rubik",fontSize:19,fontWeight:700,color:C.cream,marginBottom:3 }}>{cfg.eventoNombre||"La Guitarreada"}</div>
         <div style={{ fontFamily:"Rubik",fontSize:9,color:C.muted,letterSpacing:2,textTransform:"uppercase" }}>{cfg.eventoDia||"Sábado"} {cfg.eventoFechaCorta||"18.04"} · {cfg.eventoHora||"22hs"}</div>
@@ -632,7 +638,7 @@ function App() {
 
   /* ════ PAYMENT TRANSFER ════ */
   if (view==="payment-transfer") return (
-    <PayShell onBack={()=>go("choose-payment")}>
+    <PayShell onBack={()=>go("choose-payment")} cfg={cfg} heroB64={HERO_B64}>
       <div style={{ marginBottom:18 }}>
         <div style={{ fontFamily:"Rubik",fontSize:8,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:4 }}>Total a transferir</div>
         <div style={{ fontFamily:"Rubik",fontSize:46,fontWeight:200,color:C.sol,lineHeight:1 }}>${fmt(totalTransfer)}</div>
@@ -696,7 +702,7 @@ function App() {
 
   /* ════ PAYMENT ════ */
   if (view==="payment") return (
-    <PayShell onBack={()=>go("choose-payment")}>
+    <PayShell onBack={()=>go("choose-payment")} cfg={cfg} heroB64={HERO_B64}>
       <div style={{ marginBottom:22 }}>
         <div style={{ fontFamily:"Rubik",fontSize:8,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:4 }}>Total a abonar</div>
         <div style={{ fontFamily:"Rubik",fontSize:46,fontWeight:200,color:C.sol,lineHeight:1 }}>${fmt(pending?.total)}</div>
@@ -746,7 +752,7 @@ function App() {
 
   /* ════ ADMIN LOGIN ════ */
   if (view==="admin-login") return (
-    <PayShell onBack={goHome}>
+    <PayShell onBack={goHome} cfg={cfg} heroB64={HERO_B64}>
       <div style={{ textAlign:"center",marginBottom:32 }}>
         <LogoWhite w={100} style={{ margin:"0 auto 16px",opacity:.9 }} />
         <div style={{ fontFamily:"Rubik",fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:3 }}>Panel de administración</div>
