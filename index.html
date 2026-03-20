@@ -460,16 +460,8 @@ function App() {
       {/* ── CONTENIDO ── */}
       <div style={{ position:"relative", zIndex:1, minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center" }}>
 
-        {/* Logo + fecha — centra en el espacio visible sobre la solapa */}
-        <div style={{ flex:"0 0 52vh", width:"100%", maxWidth:480, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:16 }}>
-          <div style={{ width:88, height:88, borderRadius:"50%", background:"#fff", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 6px 28px rgba(0,0,0,0.35)" }}>
-            <LogoDark w={60} />
-          </div>
-          <div style={{ textAlign:"center" }}>
-            <div style={{ fontFamily:"Rubik", fontSize:34, fontWeight:700, color:"#fff", letterSpacing:0.5, lineHeight:1, textShadow:"0 2px 12px rgba(0,0,0,0.5)" }}>{cfg.eventoDia || "Sábado"}</div>
-            <div style={{ fontFamily:"Rubik", fontSize:22, fontWeight:300, color:"rgba(255,255,255,0.85)", letterSpacing:6, marginTop:6, textShadow:"0 2px 12px rgba(0,0,0,0.5)" }}>{cfg.eventoFechaCorta || "18.04"}</div>
-          </div>
-        </div>
+        {/* Espacio vacío sobre la solapa — la imagen ya tiene el contenido */}
+        <div style={{ flex:"0 0 52vh" }} />
 
         {/* ── SOLAPA CREMA — sube sobre la foto ── */}
         <div style={{
@@ -480,11 +472,11 @@ function App() {
           boxShadow:"0 -12px 48px rgba(0,0,0,0.22)",
           flex:1,
         }}>
-          <div style={{ fontFamily:"Rubik", fontSize:30, fontWeight:700, color:"#1D1D1B", marginBottom:10, textAlign:"center" }}>
-            Bienvenido
+          <div style={{ fontFamily:"Rubik", fontSize:28, fontWeight:700, color:"#1D1D1B", marginBottom:10, textAlign:"center" }}>
+            ¡Bienvenidos!
           </div>
-          <p style={{ fontFamily:"Rubik", fontSize:14, fontWeight:300, color:"rgba(29,29,27,0.5)", textAlign:"center", lineHeight:1.8, marginBottom:32 }}>
-            Encontrá tu nuevo espacio<br/>para compartir la cultura<br/>y tradición argentina
+          <p style={{ fontFamily:"Rubik", fontSize:14, fontWeight:300, color:"rgba(29,29,27,0.55)", textAlign:"center", lineHeight:1.8, marginBottom:32 }}>
+            Somos ¡Qué Peña!, la peña itinerante<br/>más esperada de Córdoba.<br/>Reservá tu lugar en nuestra próxima edición.
           </p>
 
           {lib < 20 && lib > 0 && (
