@@ -240,24 +240,21 @@ function App() {
           const c={...DEF,...JSON.parse(s.value)};
           try { const bv=localStorage.getItem("qp_banner"); if(bv) c.heroBanner=bv; } catch {}
           setCfg(c); setCfgF(c);
-        } catch(e) { console.warn("loadCfg cache:", e); }
-        // Intentar cargar config fresca desde el servidor (sobreescribe cache)
-        try {
-          const cfgRes = await fetch("/api/get-config");
-          if (cfgRes.ok) {
-            const serverCfg = await cfgRes.json();
-            if (serverCfg && Object.keys(serverCfg).length > 0) {
-              const merged = { ...DEF, ...serverCfg };
-              setCfg(merged); setCfgF(merged);
-              // Actualizar cache local
-              try {
-                const { heroBanner, ...rest } = merged;
-                localStorage.setItem("qp_s", JSON.stringify(rest));
-                if (heroBanner) localStorage.setItem("qp_banner", heroBanner);
-              } catch {}
+        } catch(e) { console.warn("loadCfg local:", e); }
+        // Cargar config fresca del servidor (async IIFE para poder usar await)
+        ;(async () => {
+          try {
+            const res = await fetch("/api/get-config");
+            if (res.ok) {
+              const serverCfg = await res.json();
+              if (serverCfg && Object.keys(serverCfg).length > 0) {
+                const merged = { ...DEF, ...serverCfg };
+                setCfg(merged); setCfgF(merged);
+                try { const {heroBanner,...rest}=merged; localStorage.setItem("qp_s",JSON.stringify(rest)); if(heroBanner) localStorage.setItem("qp_banner",heroBanner); } catch {}
+              }
             }
-          }
-        } catch(e) { console.warn("loadCfg server:", e); }
+          } catch(e) { console.warn("loadCfg server:", e); }
+        })()
         // Detectar retorno desde MercadoPago
         const params = new URLSearchParams(window.location.search);
         const pago = params.get("pago");
@@ -294,22 +291,13 @@ function App() {
   }, []);
 
   const saveR = async d => { try { await window.storage.set("qp_r", JSON.stringify(d)); } catch(e) { console.warn(e); } };
-  // saveS: guarda config en Cloudflare KV (server) + localStorage como cache local
   const saveS = async d => {
     try {
       const { heroBanner, ...rest } = d;
-      // Server (compartido entre dispositivos)
-      await fetch("/api/save-config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...rest, heroBanner: heroBanner || "" }),
-      });
-      // Cache local para carga rápida
-      try {
-        localStorage.setItem("qp_s", JSON.stringify(rest));
-        if (heroBanner) localStorage.setItem("qp_banner", heroBanner);
-        else localStorage.removeItem("qp_banner");
-      } catch {}
+      // Guardar en servidor (compartido entre dispositivos)
+      await fetch("/api/save-config", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({...rest, heroBanner: heroBanner||""}) });
+      // Cache local
+      try { localStorage.setItem("qp_s", JSON.stringify(rest)); if(heroBanner) localStorage.setItem("qp_banner", heroBanner); else localStorage.removeItem("qp_banner"); } catch {}
     } catch(e) { console.warn("saveS:", e); throw e; }
   };
 
@@ -556,7 +544,7 @@ function App() {
     </div>
   );
 
-  /* ════ PAYMENT SCREENS ════ */
+  /* ════ PAYSHELL + PAYMENT SCREENS ════ */
   const PayShell = ({children,onBack}) => (
     <div style={{ fontFamily:"Rubik",minHeight:"100vh",position:"relative" }}>
       <style>{GF}</style>
@@ -578,6 +566,35 @@ function App() {
         </div>
       </div>
     </div>
+  );
+
+  /* ════ FORM ════ */
+  if (view==="form") return (
+    <PayShell onBack={goHome}>
+      <div style={{ marginBottom:24 }}>
+        <div style={{ fontFamily:"Rubik",fontSize:20,fontWeight:700,color:C.cream,marginBottom:3 }}>{cfg.eventoNombre||"La Guitarreada"}</div>
+        <div style={{ fontFamily:"Rubik",fontSize:9,color:C.muted,letterSpacing:2,textTransform:"uppercase" }}>{cfg.eventoDia||"Sábado"} {cfg.eventoFechaCorta||"18.04"} · {cfg.eventoHora||"22hs"}</div>
+      </div>
+      <Field label="Nombre y apellido" value={form.nombre} onChange={v=>setForm(f=>({...f,nombre:v}))} placeholder="María González" />
+      <Field label="Email" type="email" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="hola@email.com" />
+      <Field label="WhatsApp" type="tel" value={form.tel} onChange={v=>setForm(f=>({...f,tel:v}))} placeholder="351 123 4567" />
+      <div style={{ marginBottom:24 }}>
+        <div style={{ fontFamily:"Rubik",fontSize:8,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:14 }}>Personas</div>
+        <div style={{ display:"flex",alignItems:"center",gap:18 }}>
+          <button onClick={()=>setForm(f=>({...f,qty:Math.max(1,f.qty-1)}))} style={{ width:34,height:34,background:"transparent",border:`1px solid ${C.dim}`,color:C.cream,fontSize:20,cursor:"pointer",fontWeight:200,borderRadius:6 }}>−</button>
+          <span style={{ fontFamily:"Rubik",fontSize:34,fontWeight:200,color:C.cream,minWidth:32,textAlign:"center" }}>{form.qty}</span>
+          <button onClick={()=>setForm(f=>({...f,qty:Math.min(lib,f.qty+1)}))} style={{ width:34,height:34,background:"transparent",border:`1px solid ${C.dim}`,color:C.cream,fontSize:20,cursor:"pointer",fontWeight:200,borderRadius:6 }}>+</button>
+          <span style={{ fontFamily:"Rubik",fontSize:12,color:C.muted }}>{form.qty} × ${fmt(precio)}</span>
+        </div>
+      </div>
+      <HR />
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:24 }}>
+        <span style={{ fontFamily:"Rubik",fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5 }}>Total</span>
+        <span style={{ fontFamily:"Rubik",fontSize:34,fontWeight:200,color:C.sol }}>${fmt(form.qty*precio)}</span>
+      </div>
+      {formErr&&<div style={{ fontFamily:"Rubik",fontSize:12,color:C.danger,marginBottom:12,padding:"10px 14px",background:"rgba(231,76,60,.1)",borderLeft:`3px solid ${C.danger}` }}>{formErr}</div>}
+      <Btn onClick={submit}>Continuar →</Btn>
+    </PayShell>
   );
 
   /* ════ CHOOSE PAYMENT ════ */
@@ -706,40 +723,6 @@ function App() {
         style={{ width:"100%",padding:"16px 20px",background:mpLoading?"rgba(0,158,227,.5)":"#009EE3",color:"#fff",border:"none",textAlign:"center",fontFamily:"Rubik",fontSize:13,fontWeight:600,letterSpacing:2,textTransform:"uppercase",cursor:mpLoading?"not-allowed":"pointer",borderRadius:"99px",marginBottom:10,display:"flex",alignItems:"center",justifyContent:"center",gap:10 }}>
         {mpLoading?"Conectando…":"Pagar con MercadoPago"}
       </button>
-    </PayShell>
-  );
-
-  /* ════ FORM ════ */
-  if (view==="form") return (
-    <PayShell onBack={goHome}>
-      <div style={{ marginBottom:24 }}>
-        <div style={{ fontFamily:"Rubik",fontSize:20,fontWeight:700,color:C.cream,marginBottom:3 }}>{cfg.eventoNombre||"La Guitarreada"}</div>
-        <div style={{ fontFamily:"Rubik",fontSize:9,color:C.muted,letterSpacing:2,textTransform:"uppercase" }}>{cfg.eventoDia||"Sábado"} {cfg.eventoFechaCorta||"18.04"} · {cfg.eventoHora||"22hs"}</div>
-      </div>
-
-      <Field label="Nombre y apellido" value={form.nombre} onChange={v=>setForm(f=>({...f,nombre:v}))} placeholder="María González" />
-      <Field label="Email" type="email" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="hola@email.com" />
-      <Field label="WhatsApp" type="tel" value={form.tel} onChange={v=>setForm(f=>({...f,tel:v}))} placeholder="351 123 4567" />
-
-      <div style={{ marginBottom:24 }}>
-        <div style={{ fontFamily:"Rubik",fontSize:8,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:14 }}>Personas</div>
-        <div style={{ display:"flex",alignItems:"center",gap:18 }}>
-          <button onClick={()=>setForm(f=>({...f,qty:Math.max(1,f.qty-1)}))}
-            style={{ width:34,height:34,background:"transparent",border:`1px solid ${C.dim}`,color:C.cream,fontSize:20,cursor:"pointer",fontWeight:200,borderRadius:6 }}>−</button>
-          <span style={{ fontFamily:"Rubik",fontSize:34,fontWeight:200,color:C.cream,minWidth:32,textAlign:"center" }}>{form.qty}</span>
-          <button onClick={()=>setForm(f=>({...f,qty:Math.min(lib,f.qty+1)}))}
-            style={{ width:34,height:34,background:"transparent",border:`1px solid ${C.dim}`,color:C.cream,fontSize:20,cursor:"pointer",fontWeight:200,borderRadius:6 }}>+</button>
-          <span style={{ fontFamily:"Rubik",fontSize:12,color:C.muted }}>{form.qty} × ${fmt(precio)}</span>
-        </div>
-      </div>
-
-      <HR />
-      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:24 }}>
-        <span style={{ fontFamily:"Rubik",fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5 }}>Total</span>
-        <span style={{ fontFamily:"Rubik",fontSize:34,fontWeight:200,color:C.sol }}>${fmt(form.qty*precio)}</span>
-      </div>
-      {formErr&&<div style={{ fontFamily:"Rubik",fontSize:12,color:C.danger,marginBottom:12,padding:"10px 14px",background:"rgba(231,76,60,.1)",borderLeft:`3px solid ${C.danger}` }}>{formErr}</div>}
-      <Btn onClick={submit}>Continuar →</Btn>
     </PayShell>
   );
 
