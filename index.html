@@ -445,62 +445,173 @@ function App() {
 
   /* ════ LANDING ════ */
   if (view==="landing") return (
-    <div style={{ fontFamily:"Rubik", minHeight:"100vh", position:"relative" }}>
+    <div style={{ fontFamily:"Rubik", minHeight:"100vh", position:"relative", background:"#060206" }}>
       <style>{GF}</style>
+      <style>{`
+        .lp-bg {
+          position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 0;
+          background-size: cover; background-position: 35% center;
+        }
+        .lp-ov {
+          position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 1;
+          background: linear-gradient(170deg, rgba(6,2,6,.6) 0%, rgba(6,2,6,.2) 40%, rgba(6,2,6,.92) 100%);
+        }
+        .lp-content {
+          position: relative; z-index: 2; min-height: 100vh;
+          display: flex; flex-direction: column; justify-content: flex-end;
+          padding: 0 0 40px;
+        }
+        .lp-inner {
+          width: 100%; max-width: 480px; margin: 0 auto;
+          padding: 0 18px; display: flex; flex-direction: column; gap: 10px;
+        }
+        .lp-brand { margin-bottom: 6px; }
+        .lp-bname {
+          font-family: Rubik, sans-serif; font-size: 38px; font-weight: 800;
+          color: #fff; line-height: 1; text-shadow: 0 2px 28px rgba(0,0,0,.7);
+          letter-spacing: -.5px;
+        }
+        .lp-bsub {
+          font-family: Rubik, sans-serif; font-size: 9px;
+          color: rgba(255,255,255,.35); letter-spacing: 4px;
+          text-transform: uppercase; margin-top: 9px;
+        }
+        .lp-panel {
+          background: rgba(6,2,6,.78);
+          backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+          border: 1px solid rgba(245,239,224,.09); border-radius: 14px;
+          padding: 17px 20px; transition: border-color .2s;
+        }
+        .lp-panel:hover { border-color: rgba(245,239,224,.18); }
+        .lp-cta-wrap {
+          background: rgba(6,2,6,.78);
+          backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+          border: 1px solid rgba(245,239,224,.24); border-radius: 14px;
+          padding: 5px; cursor: pointer; transition: all .2s;
+        }
+        .lp-cta-wrap:hover { border-color: rgba(245,239,224,.45); background: rgba(6,2,6,.96); }
+        .lp-cta-in {
+          background: rgba(245,239,224,.06); border-radius: 10px;
+          padding: 15px 18px; display: flex; justify-content: space-between; align-items: center;
+        }
+        .lp-lbl {
+          font-family: Rubik, sans-serif; font-size: 8px; font-weight: 600;
+          letter-spacing: 3px; text-transform: uppercase;
+          color: rgba(245,239,224,.32); margin-bottom: 5px;
+        }
+        .lp-ttl { font-family: Rubik, sans-serif; font-size: 16px; font-weight: 700; color: #f5efe0; }
+        .lp-sub {
+          font-family: Rubik, sans-serif; font-size: 13px;
+          color: rgba(245,239,224,.48); line-height: 1.65; margin-top: 4px;
+        }
+        .lp-arr { font-size: 20px; color: rgba(204,154,30,.85); flex-shrink: 0; }
+        .lp-disabled { opacity: .38; cursor: not-allowed !important; }
+        .lp-adm {
+          background: none; border: none; color: rgba(245,239,224,.2);
+          cursor: pointer; font-family: Rubik, sans-serif; font-size: 9px;
+          letter-spacing: 2.5px; text-transform: uppercase;
+          padding: 8px 0 0; display: block; width: 100%; text-align: center;
+        }
+        /* ── DESKTOP ── */
+        @media (min-width: 768px) {
+          .lp-content {
+            flex-direction: row !important;
+            align-items: flex-end !important;
+            justify-content: flex-end !important;
+            padding: 0 56px 56px 0 !important;
+          }
+          .lp-inner {
+            margin: 0 !important;
+            padding: 0 !important;
+            max-width: 340px !important;
+          }
+          .lp-brand {
+            position: fixed !important;
+            bottom: 56px !important;
+            left: 56px !important;
+            margin-bottom: 0 !important;
+            max-width: 480px;
+          }
+          .lp-bname { font-size: clamp(42px, 4vw, 60px) !important; }
+          .lp-adm { text-align: right !important; }
+        }
+      `}</style>
 
-      {/* ── PHOTO — solo en el banner visible, no detrás de la solapa ── */}
-      <div style={{
-        position:"fixed", top:0, left:0, right:0, height:"52vh", zIndex:0,
-        backgroundImage:`url(${cfg.heroBanner ? "data:image/jpeg;base64,"+cfg.heroBanner : "data:image/jpeg;base64,"+HERO_B64})`,
-        backgroundSize:"cover", backgroundPosition:"35% center",
-      }} />
-      {/* Negro debajo para que no se filtre nada */}
-      <div style={{ position:"fixed", top:"52vh", left:0, right:0, bottom:0, background:"#0d0d0d", zIndex:0 }} />
+      <div className="lp-bg" style={{ backgroundImage:`url(${cfg.heroBanner ? "data:image/jpeg;base64,"+cfg.heroBanner : "data:image/jpeg;base64,"+HERO_B64})` }} />
+      <div className="lp-ov" />
 
-      {/* ── CONTENIDO ── */}
-      <div style={{ position:"relative", zIndex:1, minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center" }}>
+      <div className="lp-content">
+        <div className="lp-inner">
 
-        {/* Espacio vacío sobre la solapa — la imagen ya tiene el contenido */}
-        <div style={{ flex:"0 0 52vh" }} />
-
-        {/* ── SOLAPA CREMA — sube sobre la foto ── */}
-        <div style={{
-          width:"100%", maxWidth:480,
-          background:"#f0ece4",
-          borderTopLeftRadius:36, borderTopRightRadius:36,
-          padding:"38px 32px 56px",
-          boxShadow:"0 -12px 48px rgba(0,0,0,0.22)",
-          flex:1,
-        }}>
-          <div style={{ fontFamily:"Rubik", fontSize:28, fontWeight:700, color:"#1D1D1B", marginBottom:10, textAlign:"center" }}>
-            ¡Bienvenidos!
+          {/* Branding — fijo abajo-izquierda en desktop, arriba del stack en mobile */}
+          <div className="lp-brand">
+            <LogoWhite w={76} style={{ marginBottom:14, opacity:.8 }} />
+            <div className="lp-bname">{cfg.eventoNombre || "La Guitarreada"}</div>
+            <div className="lp-bsub">¡Qué Peña! · Córdoba</div>
           </div>
-          <p style={{ fontFamily:"Rubik", fontSize:14, fontWeight:300, color:"rgba(29,29,27,0.55)", textAlign:"center", lineHeight:1.8, marginBottom:32 }}>
-            Somos ¡Qué Peña!, la peña itinerante<br/>más esperada de Córdoba.<br/>Reservá tu lugar en nuestra próxima edición.
-          </p>
 
-          {lib < 20 && lib > 0 && (
-            <div style={{ textAlign:"center", marginBottom:14 }}>
-              <span style={{ fontFamily:"Rubik", fontSize:11, fontWeight:600, color:lib<10?C.danger:C.pending, letterSpacing:2, textTransform:"uppercase" }}>
-                ⚡ Últimos {lib} lugar{lib!==1?"es":""}
-              </span>
+          {/* Panel 1 — El evento */}
+          <div className="lp-panel">
+            <div className="lp-lbl">El evento</div>
+            <div className="lp-ttl">{cfg.eventoFecha || "Sábado 18 de Abril · 2026"}</div>
+            <div className="lp-sub">
+              {cfg.eventoHora || "22hs"} · {cfg.eventoLugar || "La Casona de Güemes"}<br/>
+              {cfg.eventoBarrio || "Güemes · Córdoba Capital"}
             </div>
-          )}
-          {lib === 0 && (
-            <div style={{ textAlign:"center", marginBottom:14 }}>
-              <span style={{ fontFamily:"Rubik", fontSize:11, fontWeight:600, color:C.danger, letterSpacing:2, textTransform:"uppercase" }}>Entradas agotadas</span>
-            </div>
-          )}
+          </div>
 
-          <Btn filled onClick={()=>go("form")} disabled={lib===0}>
-            {lib===0 ? "Sin disponibilidad" : "Reservar lugar"}
-          </Btn>
-          <Btn ghost onClick={()=>go("admin-login")}>
+          {/* Panel 2 — Precio y cupo */}
+          <div className="lp-panel">
+            <div className="lp-lbl">Entradas</div>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div>
+                <span style={{ fontFamily:"Rubik", fontSize:30, fontWeight:200, color:C.sol, lineHeight:1 }}>
+                  ${fmt(precio)}
+                </span>
+                <span style={{ fontFamily:"Rubik", fontSize:12, color:"rgba(245,239,224,.32)", marginLeft:8 }}>
+                  / persona
+                </span>
+              </div>
+              <div>
+                {lib > 0 && lib <= 20 && (
+                  <span style={{ fontFamily:"Rubik", fontSize:9, fontWeight:600, color:lib<10?C.danger:C.pending, letterSpacing:1.5, textTransform:"uppercase" }}>
+                    ⚡ {lib} lugar{lib!==1?"es":""}
+                  </span>
+                )}
+                {lib === 0 && (
+                  <span style={{ fontFamily:"Rubik", fontSize:9, fontWeight:600, color:C.danger, letterSpacing:1.5, textTransform:"uppercase" }}>
+                    Agotado
+                  </span>
+                )}
+                {lib > 20 && (
+                  <span style={{ fontFamily:"Rubik", fontSize:9, color:"rgba(46,204,113,.6)", letterSpacing:1.5 }}>
+                    Disponible
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Panel 3 — CTA reservar */}
+          <div
+            className={lib===0 ? "lp-panel lp-disabled" : "lp-cta-wrap"}
+            onClick={lib>0 ? ()=>go("form") : undefined}
+          >
+            <div className="lp-cta-in">
+              <div>
+                <div className="lp-lbl">Reservar</div>
+                <div className="lp-ttl" style={{ fontSize:15 }}>
+                  {lib===0 ? "Sin disponibilidad" : "Asegurar mi lugar"}
+                </div>
+              </div>
+              <div className="lp-arr">→</div>
+            </div>
+          </div>
+
+          <button className="lp-adm" onClick={()=>go("admin-login")}>
             Administrar reservas
-          </Btn>
-          <p style={{ fontFamily:"Rubik", fontSize:11, fontWeight:300, color:"rgba(29,29,27,0.3)", textAlign:"center", marginTop:16 }}>
-            Derecho de espectáculo · $15.000 por persona
-          </p>
+          </button>
+
         </div>
       </div>
     </div>
