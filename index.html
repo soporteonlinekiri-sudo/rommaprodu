@@ -40,7 +40,7 @@ window.storage = {
 
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; background: #410930; }
+  html, body { height: 100%; background: #060206; }
   #root { min-height: 100%; }
   input::placeholder { color: rgba(245,239,224,0.25); }
   input:-webkit-autofill {
@@ -235,26 +235,8 @@ function App() {
     const S = window.storage;
     Promise.all([S.get("qp_r").catch(()=>null), S.get("qp_s").catch(()=>null), S.get("qp_p").catch(()=>null)])
       .then(([r,s,p]) => {
-        if (r) try { setReservas(JSON.parse(r.value)); } catch {}
-        if (s) try {
-          const c={...DEF,...JSON.parse(s.value)};
-          try { const bv=localStorage.getItem("qp_banner"); if(bv) c.heroBanner=bv; } catch {}
-          setCfg(c); setCfgF(c);
-        } catch(e) { console.warn("loadCfg local:", e); }
-        // Cargar config fresca del servidor (async IIFE para poder usar await)
-        ;(async () => {
-          try {
-            const res = await fetch("/api/get-config");
-            if (res.ok) {
-              const serverCfg = await res.json();
-              if (serverCfg && Object.keys(serverCfg).length > 0) {
-                const merged = { ...DEF, ...serverCfg };
-                setCfg(merged); setCfgF(merged);
-                try { const {heroBanner,...rest}=merged; localStorage.setItem("qp_s",JSON.stringify(rest)); if(heroBanner) localStorage.setItem("qp_banner",heroBanner); } catch {}
-              }
-            }
-          } catch(e) { console.warn("loadCfg server:", e); }
-        })()
+        if (r) try { setReservas(JSON.parse(r.value)); } catch(e) {}
+        if (s) try { const c={...DEF,...JSON.parse(s.value)}; setCfg(c); setCfgF(c); } catch(e) {}
         // Detectar retorno desde MercadoPago
         const params = new URLSearchParams(window.location.search);
         const pago = params.get("pago");
@@ -288,21 +270,33 @@ function App() {
           go("landing");
         }
       });
+    // Cargar config fresca del servidor en background (async IIFE)
+    (function() {
+      fetch("/api/get-config").then(function(res) {
+        if (!res.ok) return;
+        return res.json();
+      }).then(function(serverCfg) {
+        if (!serverCfg || Object.keys(serverCfg).length === 0) return;
+        var merged = Object.assign({}, DEF, serverCfg);
+        setCfg(merged); setCfgF(merged);
+        try { var h=merged.heroBanner||""; var rest=Object.assign({},merged); delete rest.heroBanner; localStorage.setItem("qp_s", JSON.stringify(rest)); if(h) localStorage.setItem("qp_banner",h); } catch(e) {}
+      }).catch(function(e) { console.warn("loadCfg server:", e); });
+    })();
   }, []);
 
-  const saveR = async d => { try { await window.storage.set("qp_r", JSON.stringify(d)); } catch(e) { console.warn(e); } };
+  const saveR = async d => { try { await window.storage.set("qp_r", JSON.stringify(d)); } catch(e) {} };
   const saveS = async d => {
     try {
-      const { heroBanner, ...rest } = d;
-      // Guardar en servidor (compartido entre dispositivos)
-      await fetch("/api/save-config", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({...rest, heroBanner: heroBanner||""}) });
-      // Cache local
-      try { localStorage.setItem("qp_s", JSON.stringify(rest)); if(heroBanner) localStorage.setItem("qp_banner", heroBanner); else localStorage.removeItem("qp_banner"); } catch {}
+      var heroBanner = d.heroBanner || "";
+      var rest = Object.assign({}, d);
+      delete rest.heroBanner;
+      await fetch("/api/save-config", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(Object.assign({}, rest, {heroBanner: heroBanner})) });
+      try { localStorage.setItem("qp_s", JSON.stringify(rest)); if(heroBanner) localStorage.setItem("qp_banner", heroBanner); else localStorage.removeItem("qp_banner"); } catch(e) {}
     } catch(e) { console.warn("saveS:", e); throw e; }
   };
 
   // Precios dinámicos desde config — siempre frescos desde cfg
-  const precio        = Number(cfg.precio) > 0 ? Number(cfg.precio) : 1;
+  const precio        = Number(cfg.precio) > 0 ? Number(cfg.precio) : 15000;
   const serviceCharge = Number(cfg.serviceCharge) > 0 ? Number(cfg.serviceCharge) / 100 : 0.12;
 
   const ocp  = reservas.filter(r=>r.status!=="cancelado").reduce((s,r)=>s+r.cantidad,0);
@@ -466,7 +460,7 @@ function App() {
       adminPass: cfgF.adminPass || cfg.adminPass,
     };
     setCfg(u); setCfgF(u);
-    try { await saveS(u); setCfgOk(true); setTimeout(()=>setCfgOk(false),2200); }
+    try { await saveS(u); setCfgOk(true); setTimeout(function(){setCfgOk(false);},2200); }
     catch(e) { alert("Error al guardar: "+e.message); }
   };
 
@@ -544,7 +538,7 @@ function App() {
     </div>
   );
 
-  /* ════ PAYSHELL + PAYMENT SCREENS ════ */
+  /* ════ PAYSHELL + SCREENS ════ */
   const PayShell = ({children,onBack}) => (
     <div style={{ fontFamily:"Rubik",minHeight:"100vh",position:"relative" }}>
       <style>{GF}</style>
@@ -606,7 +600,7 @@ function App() {
       </div>
       <div style={{ fontFamily:"Rubik",fontSize:8,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:14 }}>Elegí cómo pagar</div>
       <div onClick={()=>{ setPayMethod("transfer"); setPending({ id:genId(),nombre:form.nombre.trim(),email:form.email.trim(),telefono:form.tel.trim(),cantidad:form.qty,total:totalTransfer,status:"pendiente",createdAt:new Date().toLocaleString("es-AR"),metodoPago:"transferencia" }); go("payment-transfer"); }}
-        style={{ border:"1px solid rgba(245,239,224,.1)",borderRadius:12,padding:"15px 17px",marginBottom:9,cursor:"pointer",background:"rgba(245,239,224,.03)",transition:"all .2s" }}>
+        style={{ border:"1px solid rgba(245,239,224,.1)",borderRadius:12,padding:"15px 17px",marginBottom:9,cursor:"pointer",background:"rgba(245,239,224,.03)" }}>
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:5 }}>
           <div>
             <div style={{ fontFamily:"Rubik",fontSize:14,fontWeight:600,color:C.cream }}>Transferencia bancaria</div>
@@ -617,7 +611,7 @@ function App() {
         <div style={{ fontFamily:"Rubik",fontSize:10,color:"rgba(46,204,113,.7)" }}>✓ Ahorrás ${fmt(totalMP-totalTransfer)}</div>
       </div>
       <div onClick={()=>{ setPayMethod("mp"); setPending({ id:genId(),nombre:form.nombre.trim(),email:form.email.trim(),telefono:form.tel.trim(),cantidad:form.qty,total:totalMP,status:"pendiente",createdAt:new Date().toLocaleString("es-AR"),metodoPago:"mercadopago" }); go("payment"); }}
-        style={{ border:"1px solid rgba(245,239,224,.1)",borderRadius:12,padding:"15px 17px",marginBottom:20,cursor:"pointer",background:"rgba(245,239,224,.03)",transition:"all .2s" }}>
+        style={{ border:"1px solid rgba(245,239,224,.1)",borderRadius:12,padding:"15px 17px",marginBottom:20,cursor:"pointer",background:"rgba(245,239,224,.03)" }}>
         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:5 }}>
           <div>
             <div style={{ fontFamily:"Rubik",fontSize:14,fontWeight:600,color:C.cream }}>MercadoPago</div>
@@ -656,7 +650,7 @@ function App() {
           <div style={{ fontFamily:"Rubik",fontSize:8,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:6 }}>Alias</div>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
             <div style={{ fontFamily:"Rubik",fontSize:18,fontWeight:600,color:C.cream,letterSpacing:1 }}>{BANK.alias}</div>
-            <button onClick={()=>copyText(BANK.alias,"alias")} style={{ background:copied==="alias"?"rgba(46,204,113,.15)":"rgba(245,239,224,.06)",border:`1px solid ${copied==="alias"?C.success:C.dim}`,color:copied==="alias"?C.success:C.cream,cursor:"pointer",fontFamily:"Rubik",fontSize:10,fontWeight:600,letterSpacing:1.5,padding:"6px 14px",borderRadius:99,transition:"all .2s" }}>
+            <button onClick={()=>copyText(BANK.alias,"alias")} style={{ background:copied==="alias"?"rgba(46,204,113,.15)":"rgba(245,239,224,.06)",border:`1px solid ${copied==="alias"?C.success:C.dim}`,color:copied==="alias"?C.success:C.cream,cursor:"pointer",fontFamily:"Rubik",fontSize:10,fontWeight:600,letterSpacing:1.5,padding:"6px 14px",borderRadius:99 }}>
               {copied==="alias"?"✓ Copiado":"Copiar"}
             </button>
           </div>
@@ -665,7 +659,7 @@ function App() {
           <div style={{ fontFamily:"Rubik",fontSize:8,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:6 }}>CVU</div>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
             <div style={{ fontFamily:"Rubik",fontSize:11,color:C.cream,letterSpacing:.5,fontVariantNumeric:"tabular-nums" }}>{BANK.cvu}</div>
-            <button onClick={()=>copyText(BANK.cvu,"cvu")} style={{ background:copied==="cvu"?"rgba(46,204,113,.15)":"rgba(245,239,224,.06)",border:`1px solid ${copied==="cvu"?C.success:C.dim}`,color:copied==="cvu"?C.success:C.cream,cursor:"pointer",fontFamily:"Rubik",fontSize:10,fontWeight:600,letterSpacing:1.5,padding:"6px 14px",borderRadius:99,transition:"all .2s",flexShrink:0,marginLeft:8 }}>
+            <button onClick={()=>copyText(BANK.cvu,"cvu")} style={{ background:copied==="cvu"?"rgba(46,204,113,.15)":"rgba(245,239,224,.06)",border:`1px solid ${copied==="cvu"?C.success:C.dim}`,color:copied==="cvu"?C.success:C.cream,cursor:"pointer",fontFamily:"Rubik",fontSize:10,fontWeight:600,letterSpacing:1.5,padding:"6px 14px",borderRadius:99,flexShrink:0,marginLeft:8 }}>
               {copied==="cvu"?"✓ Copiado":"Copiar"}
             </button>
           </div>
@@ -677,7 +671,7 @@ function App() {
         <div style={{ fontFamily:"Rubik",fontSize:12,fontWeight:300,color:C.muted,marginBottom:12,lineHeight:1.6 }}>Subí el comprobante y lo verificamos con IA automáticamente.</div>
         <label style={{ display:"block",cursor:"pointer" }}>
           <input type="file" accept="image/*" style={{ display:"none" }} onChange={async e=>{const file=e.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{setComprobante(ev.target.result.split(",")[1]);setAiStatus("idle");};reader.readAsDataURL(file);}} />
-          <div style={{ border:`1.5px dashed ${comprobante?C.sol:C.dim}`,borderRadius:10,padding:"20px",textAlign:"center",transition:"all .2s",background:comprobante?"rgba(204,154,30,.05)":"transparent" }}>
+          <div style={{ border:`1.5px dashed ${comprobante?C.sol:C.dim}`,borderRadius:10,padding:"20px",textAlign:"center",background:comprobante?"rgba(204,154,30,.05)":"transparent" }}>
             {comprobante?(
               <div><img src={`data:image/jpeg;base64,${comprobante}`} style={{ maxWidth:"100%",maxHeight:140,objectFit:"contain",borderRadius:4,marginBottom:8 }}/><div style={{ fontFamily:"Rubik",fontSize:11,color:C.sol }}>✓ Tocá para cambiar</div></div>
             ):(
@@ -687,7 +681,7 @@ function App() {
         </label>
       </div>
       {aiStatus==="loading"&&<div style={{ padding:"11px 14px",background:"rgba(0,158,227,.08)",border:"1px solid rgba(0,158,227,.2)",borderRadius:8,marginBottom:10,textAlign:"center" }}><div style={{ fontFamily:"Rubik",fontSize:12,color:"#009EE3" }}>🔍 Verificando con IA...</div></div>}
-      {aiStatus==="ok"&&<div style={{ padding:"11px 14px",background:"rgba(46,204,113,.1)",border:`1px solid ${C.success}`,borderRadius:8,marginBottom:10 }}><div style={{ fontFamily:"Rubik",fontSize:12,color:C.success,fontWeight:600 }}>✓ Pago verificado — Reserva confirmada</div><div style={{ fontFamily:"Rubik",fontSize:11,color:C.muted,marginTop:3 }}>Te enviamos la confirmación por email.</div></div>}
+      {aiStatus==="ok"&&<div style={{ padding:"11px 14px",background:"rgba(46,204,113,.1)",border:`1px solid ${C.success}`,borderRadius:8,marginBottom:10 }}><div style={{ fontFamily:"Rubik",fontSize:12,color:C.success,fontWeight:600 }}>✓ Pago verificado</div><div style={{ fontFamily:"Rubik",fontSize:11,color:C.muted,marginTop:3 }}>Te enviamos la confirmación por email.</div></div>}
       {aiStatus==="pending"&&<div style={{ padding:"11px 14px",background:"rgba(243,156,18,.1)",border:`1px solid ${C.pending}`,borderRadius:8,marginBottom:10 }}><div style={{ fontFamily:"Rubik",fontSize:12,color:C.pending,fontWeight:600 }}>⏳ Pago en revisión</div><div style={{ fontFamily:"Rubik",fontSize:11,color:C.muted,marginTop:3 }}>{aiMsg}</div></div>}
       {aiStatus==="error"&&<div style={{ padding:"11px 14px",background:"rgba(231,76,60,.1)",border:`1px solid ${C.danger}`,borderRadius:8,marginBottom:10 }}><div style={{ fontFamily:"Rubik",fontSize:12,color:C.danger }}>{aiMsg}</div></div>}
       {aiStatus==="ok"||aiStatus==="pending"?(
@@ -718,7 +712,7 @@ function App() {
         ))}
       </div>
       {mpError&&<div style={{ padding:"10px 14px",background:"rgba(231,76,60,.1)",border:"1px solid rgba(231,76,60,.3)",borderRadius:8,marginBottom:10 }}><span style={{ fontFamily:"Rubik",fontSize:12,color:C.danger }}>{mpError}</span></div>}
-      <button onClick={async()=>{setMpLoading(true);setMpError("");try{const r=await fetch(`${BACKEND_URL}/api/create-preference`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({nombre:pending?.nombre,email:pending?.email,telefono:pending?.telefono,cantidad:pending?.cantidad,total:pending?.total})});const data=await r.json();if(!r.ok)throw new Error(data.error||"Error al crear el pago");await window.storage.set("qp_p",JSON.stringify(pending)).catch(()=>{});window.location.href=data.init_point;}catch(e){setMpError("No se pudo conectar con MercadoPago. Intentá de nuevo.");}finally{setMpLoading(false);}}}
+      <button onClick={async()=>{setMpLoading(true);setMpError("");try{const r=await fetch(`${BACKEND_URL}/api/create-preference`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({nombre:pending&&pending.nombre,email:pending&&pending.email,telefono:pending&&pending.telefono,cantidad:pending&&pending.cantidad,total:pending&&pending.total})});const data=await r.json();if(!r.ok)throw new Error(data.error||"Error al crear el pago");await window.storage.set("qp_p",JSON.stringify(pending)).catch(function(e){});window.location.href=data.init_point;}catch(e){setMpError("No se pudo conectar con MercadoPago. Intentá de nuevo.");}finally{setMpLoading(false);}}}
         disabled={mpLoading}
         style={{ width:"100%",padding:"16px 20px",background:mpLoading?"rgba(0,158,227,.5)":"#009EE3",color:"#fff",border:"none",textAlign:"center",fontFamily:"Rubik",fontSize:13,fontWeight:600,letterSpacing:2,textTransform:"uppercase",cursor:mpLoading?"not-allowed":"pointer",borderRadius:"99px",marginBottom:10,display:"flex",alignItems:"center",justifyContent:"center",gap:10 }}>
         {mpLoading?"Conectando…":"Pagar con MercadoPago"}
