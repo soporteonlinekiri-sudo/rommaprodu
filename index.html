@@ -58,7 +58,7 @@ window.storage = {
 const { useState, useEffect, useRef } = React;
 
 
-const PRICE = cfg.precio || 1;
+const PRICE = 1; // valor base, se sobreescribe con cfg.precio dentro del componente
 const fmt = n => new Intl.NumberFormat("es-AR").format(n);
 const genId = () => Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2,5).toUpperCase();
 const DEF = {
@@ -221,7 +221,7 @@ function App() {
     titular: "Agustín Fernández",
     banco:   "MercadoPago",
   };
-  const SERVICE_CHARGE = (cfg.serviceCharge || 12) / 100;
+  const SERVICE_CHARGE = 0.12; // valor base, se sobreescribe dentro del componente
 
   const [payMethod,   setPayMethod]   = useState(null); // null | "mp" | "transfer"
   const [comprobante, setComprobante] = useState(null); // base64
@@ -275,6 +275,10 @@ function App() {
   const saveR = async d => { try { await window.storage.set("qp_r", JSON.stringify(d)); } catch {} };
   const saveS = async d => { try { await window.storage.set("qp_s", JSON.stringify(d)); } catch {} };
 
+  // Precios dinámicos desde config
+  const precio       = cfg.precio || 1;
+  const serviceCharge = (cfg.serviceCharge || 12) / 100;
+
   const ocp  = reservas.filter(r=>r.status!=="cancelado").reduce((s,r)=>s+r.cantidad,0);
   const lib  = Math.max(0, cfg.cupo - ocp);
   const conf = reservas.filter(r=>r.status==="confirmado");
@@ -300,8 +304,8 @@ function App() {
     });
   };
 
-  const totalBase     = form.qty * PRICE;
-  const totalMP       = Math.round(totalBase * (1 + SERVICE_CHARGE));
+  const totalBase     = form.qty * precio;
+  const totalMP       = Math.round(totalBase * (1 + serviceCharge));
   const totalTransfer = totalBase;
 
   const submit = () => {
