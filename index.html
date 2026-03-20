@@ -48,6 +48,8 @@ window.storage = {
     -webkit-text-fill-color: #F5EFE0 !important;
   }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script>emailjs.init("eY_5IPm3gVcyLn_ar");</script>
 </head>
 <body>
 <div id="root"></div>
@@ -56,7 +58,7 @@ window.storage = {
 const { useState, useEffect, useRef } = React;
 
 
-const PRICE = 15000;
+const PRICE = 1;
 const fmt = n => new Intl.NumberFormat("es-AR").format(n);
 const genId = () => Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2,5).toUpperCase();
 const DEF = { cupo: 80, mpLink: "", adminUser: "admin", adminPass: "quepena2026" };
@@ -236,7 +238,24 @@ function App() {
     setChecked(false); go("payment");
   };
 
-  const confirmR = async () => { const u=[...reservas,pending]; setReservas(u); await saveR(u); go("success"); };
+  const confirmR = async () => {
+    const u=[...reservas,pending];
+    setReservas(u);
+    await saveR(u);
+    // Enviar email de confirmación
+    try {
+      await emailjs.send("service_w7isuyl", "template_fzm4grk", {
+        to_email:   pending.email,
+        nombre:     pending.nombre,
+        reserva_id: pending.id,
+        cantidad:   pending.cantidad + " entrada" + (pending.cantidad > 1 ? "s" : ""),
+        total:      new Intl.NumberFormat("es-AR").format(pending.total),
+      });
+    } catch(e) {
+      console.warn("Email no enviado:", e);
+    }
+    go("success");
+  };
   const chgSt = async (id,status) => { const u=reservas.map(r=>r.id===id?{...r,status}:r); setReservas(u); await saveR(u); };
   const doLogin = () => {
     if (lf.u.trim()===cfg.adminUser && lf.p===cfg.adminPass) { setCfgF({...cfg}); setLerr(false); go("admin"); }
