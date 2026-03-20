@@ -363,7 +363,7 @@ function App() {
       await saveR(u);
 
       if (confianzaAlta) {
-        // Auto-confirmar: enviar email
+        // Auto-confirmar con alta confianza: enviar email
         try {
           await emailjs.send("service_w7isuyl", "template_fzm4grk", {
             to_email:   pendingData.email,
@@ -375,8 +375,9 @@ function App() {
         } catch(e) { console.warn("Email:", e); }
         setAiStatus("ok");
       } else {
+        // Pendiente: NO enviar email, esperar aprobación manual del admin
         setAiStatus("pending");
-        setAiMsg(result.motivo || "El comprobante quedó pendiente de revisión manual.");
+        setAiMsg(result.motivo || "Tu comprobante quedó pendiente de revisión. Te avisamos cuando se confirme.");
       }
 
     } catch(e) {
@@ -403,7 +404,26 @@ function App() {
     }
     go("success");
   };
-  const chgSt = async (id,status) => { const u=reservas.map(r=>r.id===id?{...r,status}:r); setReservas(u); await saveR(u); };
+  const chgSt = async (id, status) => {
+    const u = reservas.map(r => r.id === id ? {...r, status} : r);
+    setReservas(u);
+    await saveR(u);
+    // Si el admin confirma una reserva por transferencia → enviar email ahora
+    if (status === "confirmado") {
+      const r = reservas.find(x => x.id === id);
+      if (r && r.metodoPago === "transferencia") {
+        try {
+          await emailjs.send("service_w7isuyl", "template_fzm4grk", {
+            to_email:   r.email,
+            nombre:     r.nombre,
+            reserva_id: r.id,
+            cantidad:   r.cantidad + " entrada" + (r.cantidad > 1 ? "s" : ""),
+            total:      fmt(r.total),
+          });
+        } catch(e) { console.warn("Email:", e); }
+      }
+    }
+  };
   const doLogin = () => {
     if (lf.u.trim()===cfg.adminUser && lf.p===cfg.adminPass) { setCfgF({...cfg}); setLerr(false); go("admin"); }
     else setLerr(true);
