@@ -225,6 +225,7 @@ function App() {
 
   const [payMethod,   setPayMethod]   = useState(null); // null | "mp" | "transfer"
   const [comprobante, setComprobante] = useState(null); // base64
+  const [comprobanteType, setComprobanteType] = useState("image/jpeg");
   const [aiStatus,    setAiStatus]    = useState("idle"); // idle | loading | ok | pending | error
   const [aiMsg,       setAiMsg]       = useState("");
   const [copied,      setCopied]      = useState("");
@@ -238,13 +239,8 @@ function App() {
         if (r) try { setReservas(JSON.parse(r.value)); } catch {}
         if (s) try { const c={...DEF,...JSON.parse(s.value)}; setCfg(c); setCfgF(c); } catch {}
         // Detectar retorno desde MercadoPago
-        // Detectar retorno de MP — soporta paths /exito, /error, /pendiente
         const params = new URLSearchParams(window.location.search);
-        const pagoPath = window.location.pathname;
-        const pago = params.get("pago") ||
-          (pagoPath === "/exito" ? "aprobado" :
-           pagoPath === "/error" ? "rechazado" :
-           pagoPath === "/pendiente" ? "pendiente" : null);
+        const pago = params.get("pago");
         if (pago === "aprobado" && p) {
           try {
             const pendingData = JSON.parse(p.value);
@@ -267,11 +263,11 @@ function App() {
             }
             S.delete("qp_p").catch(()=>{});
             // Limpiar URL
-            window.history.replaceState({}, "", "/");
+            window.history.replaceState({}, "", window.location.pathname);
             go("success");
           } catch(e) { console.warn("Error al procesar pago:", e); }
-        } else if (pago === "rechazado" || pago === "pendiente") {
-          window.history.replaceState({}, "", "/");
+        } else if (pago === "rechazado") {
+          window.history.replaceState({}, "", window.location.pathname);
           go("landing");
         }
       });
@@ -343,7 +339,7 @@ function App() {
       const res = await fetch("/api/verify-comprobante", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imagen: base64img, montoEsperado: totalTransfer })
+        body: JSON.stringify({ imagen: base64img, montoEsperado: totalTransfer, mediaType: comprobanteType })
       });
 
       const result = await res.json();
@@ -691,8 +687,11 @@ function App() {
                 if (!file) return;
                 const reader = new FileReader();
                 reader.onload = ev => {
-                  const base64 = ev.target.result.split(",")[1];
+                  const dataUrl = ev.target.result;
+                  const base64 = dataUrl.split(",")[1];
+                  const mtype = dataUrl.split(";")[0].split(":")[1] || "image/jpeg";
                   setComprobante(base64);
+                  setComprobanteType(mtype);
                   setAiStatus("idle");
                 };
                 reader.readAsDataURL(file);
