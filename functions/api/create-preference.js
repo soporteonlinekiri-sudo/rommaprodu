@@ -16,7 +16,15 @@ export async function onRequestPost({ request, env }) {
       return new Response(JSON.stringify({ error: "Token no configurado" }), { status: 500, headers });
     }
 
-    const BASE_URL = "https://rommaprodu.pages.dev";
+    // URL correcta del sitio en producción
+    const BASE_URL = "https://gestordereservas.pages.dev";
+
+    // MercadoPago requiere unit_price como float
+    const unitPrice = parseFloat(Number(total).toFixed(2));
+
+    if (unitPrice <= 0 || isNaN(unitPrice)) {
+      return new Response(JSON.stringify({ error: "Precio inválido: " + total }), { status: 400, headers });
+    }
 
     const mpRes = await fetch("https://api.mercadopago.com/checkout/preferences", {
       method: "POST",
@@ -30,7 +38,7 @@ export async function onRequestPost({ request, env }) {
           description: `${cantidad} entrada${cantidad > 1 ? "s" : ""} · Sábado 18/04`,
           quantity: 1,
           currency_id: "ARS",
-          unit_price: Number(total),
+          unit_price: unitPrice,
         }],
         payer: { name: nombre, email, phone: { number: String(telefono) } },
         back_urls: {
@@ -45,12 +53,23 @@ export async function onRequestPost({ request, env }) {
     });
 
     const data = await mpRes.json();
-    if (!mpRes.ok) return new Response(JSON.stringify({ error: "Error MP", detail: data }), { status: mpRes.status, headers });
+    if (!mpRes.ok) {
+      return new Response(
+        JSON.stringify({ error: "Error MP", detail: data }),
+        { status: mpRes.status, headers }
+      );
+    }
 
-    return new Response(JSON.stringify({ id: data.id, init_point: data.init_point }), { status: 200, headers });
+    return new Response(
+      JSON.stringify({ id: data.id, init_point: data.init_point }),
+      { status: 200, headers }
+    );
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: "Error interno: " + err.message }), { status: 500, headers });
+    return new Response(
+      JSON.stringify({ error: "Error interno: " + err.message }),
+      { status: 500, headers }
+    );
   }
 }
 
