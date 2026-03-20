@@ -66,7 +66,7 @@ const DEF = {
   mpLink: "",
   adminUser: "admin",
   adminPass: "quepena2026",
-  precio: 1,
+  precio: 15000,
   eventoNombre: "La Guitarreada",
   eventoFecha: "Sábado 18 de Abril · 2026",
   eventoFechaCorta: "18.04",
@@ -276,7 +276,7 @@ function App() {
       });
   }, []);
 
-  const saveR = async d => { try { await window.storage.set("qp_r", JSON.stringify(d)); } catch(e) { console.warn("saveR:",e); } };
+  const saveR = async d => { try { await window.storage.set("qp_r", JSON.stringify(d)); } catch(e) { console.warn(e); } };
   const saveS = async d => {
     try {
       const { heroBanner, ...rest } = d;
@@ -746,18 +746,16 @@ function App() {
 
   /* ════ ADMIN LOGIN ════ */
   if (view==="admin-login") return (
-    <div style={{ ...base, justifyContent:"center" }}>
-      <style>{GF}</style>
-      <div style={inner}>
-        <Back onClick={goHome} />
-        <LogoWhite w={130} style={{ marginBottom:8 }} />
-        <div style={{ fontFamily:"Rubik", fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:3, marginBottom:40 }}>Panel de administración</div>
-        <Field label="Usuario"    value={lf.u} onChange={v=>setLf(f=>({...f,u:v}))} placeholder="admin" />
-        <Field label="Contraseña" type="password" value={lf.p} onChange={v=>setLf(f=>({...f,p:v}))} placeholder="••••••••" />
-        {lerr && <div style={{ fontFamily:"Rubik", fontSize:12, color:C.danger, marginBottom:12 }}>Credenciales incorrectas.</div>}
-        <Btn onClick={doLogin} style={{ marginTop:16 }}>Ingresar</Btn>
+    <PayShell onBack={goHome}>
+      <div style={{ textAlign:"center", marginBottom:32 }}>
+        <LogoWhite w={100} style={{ margin:"0 auto 16px", opacity:.9 }} />
+        <div style={{ fontFamily:"Rubik", fontSize:9, color:C.muted, textTransform:"uppercase", letterSpacing:3 }}>Panel de administración</div>
       </div>
-    </div>
+      <Field label="Usuario" value={lf.u} onChange={v=>setLf(f=>({...f,u:v}))} placeholder="admin" />
+      <Field label="Contraseña" type="password" value={lf.p} onChange={v=>setLf(f=>({...f,p:v}))} placeholder="••••••••" />
+      {lerr && <div style={{ fontFamily:"Rubik", fontSize:12, color:C.danger, marginBottom:12, padding:"10px 14px", background:"rgba(231,76,60,.1)", borderLeft:`3px solid ${C.danger}` }}>Credenciales incorrectas.</div>}
+      <Btn onClick={doLogin} style={{ marginTop:16 }}>Ingresar</Btn>
+    </PayShell>
   );
 
   /* ════ ADMIN ════ */
