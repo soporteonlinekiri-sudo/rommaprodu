@@ -1,56 +1,57 @@
-export default async function handler(req, res) {
-  // CORS — responder siempre con estos headers
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.setHeader("Access-Control-Max-Age", "86400");
-
-  // Preflight
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
-  const { nombre, email, telefono, cantidad, total } = req.body;
-
-  if (!nombre || !email || !cantidad || !total) {
-    return res.status(400).json({ error: "Faltan datos requeridos" });
-  }
-
-  const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
-  if (!ACCESS_TOKEN) {
-    return res.status(500).json({ error: "Access token no configurado" });
-  }
-
-  const BASE_URL = "https://compratuentrada.netlify.app";
-
-  const preference = {
-    items: [{
-      title: "¡Qué Peña! — La Guitarreada",
-      description: `Derecho de espectáculo · ${cantidad} entrada${cantidad > 1 ? "s" : ""} · Sábado 18/04`,
-      quantity: 1,
-      currency_id: "ARS",
-      unit_price: Number(total),
-    }],
-    payer: {
-      name: nombre,
-      email: email,
-      phone: { number: String(telefono) },
-    },
-    back_urls: {
-      success: `${BASE_URL}?pago=aprobado`,
-      failure: `${BASE_URL}?pago=rechazado`,
-      pending: `${BASE_URL}?pago=pendiente`,
-    },
-    auto_return: "approved",
-    statement_descriptor: "QUE PENA GUITARREADA",
-    external_reference: `QP-${Date.now()}`,
+export default async (request, context) => {
+  // CORS headers
+  const headers = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Content-Type": "application/json",
   };
 
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 200, headers });
+  }
+
+  if (request.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers });
+  }
+
   try {
+    const { nombre, email, telefono, cantidad, total } = await request.json();
+
+    if (!nombre || !email || !cantidad || !total) {
+      return new Response(JSON.stringify({ error: "Faltan datos requeridos" }), { status: 400, headers });
+    }
+
+    const ACCESS_TOKEN = Netlify.env.get("MP_ACCESS_TOKEN");
+    if (!ACCESS_TOKEN) {
+      return new Response(JSON.stringify({ error: "Access token no configurado" }), { status: 500, headers });
+    }
+
+    const BASE_URL = "https://compratuentrada.netlify.app";
+
+    const preference = {
+      items: [{
+        title: "¡Qué Peña! — La Guitarreada",
+        description: `Derecho de espectáculo · ${cantidad} entrada${cantidad > 1 ? "s" : ""} · Sábado 18/04`,
+        quantity: 1,
+        currency_id: "ARS",
+        unit_price: Number(total),
+      }],
+      payer: {
+        name: nombre,
+        email: email,
+        phone: { number: String(telefono) },
+      },
+      back_urls: {
+        success: `${BASE_URL}?pago=aprobado`,
+        failure: `${BASE_URL}?pago=rechazado`,
+        pending: `${BASE_URL}?pago=pendiente`,
+      },
+      auto_return: "approved",
+      statement_descriptor: "QUE PENA GUITARREADA",
+      external_reference: `QP-${Date.now()}`,
+    };
+
     const mpRes = await fetch("https://api.mercadopago.com/checkout/preferences", {
       method: "POST",
       headers: {
@@ -63,17 +64,14 @@ export default async function handler(req, res) {
     const data = await mpRes.json();
 
     if (!mpRes.ok) {
-      console.error("MP Error:", data);
-      return res.status(mpRes.status).json({ error: "Error al crear preferencia", detail: data });
+      return new Response(JSON.stringify({ error: "Error al crear preferencia", detail: data }), { status: mpRes.status, headers });
     }
 
-    return res.status(200).json({
-      id: data.id,
-      init_point: data.init_point,
-    });
+    return new Response(JSON.stringify({ id: data.id, init_point: data.init_point }), { status: 200, headers });
 
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: "Error interno del servidor" });
+    return new Response(JSON.stringify({ error: "Error interno" }), { status: 500, headers });
   }
-}
+};
+
+export const config = { path: "/api/create-preference" };
