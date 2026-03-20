@@ -236,15 +236,7 @@ function App() {
     Promise.all([S.get("qp_r").catch(()=>null), S.get("qp_s").catch(()=>null), S.get("qp_p").catch(()=>null)])
       .then(([r,s,p]) => {
         if (r) try { setReservas(JSON.parse(r.value)); } catch {}
-        if (s) try {
-          const c={...DEF,...JSON.parse(s.value)};
-          // Cargar banner por separado (guardado en clave propia para evitar límite)
-          try {
-            const bannerVal = localStorage.getItem("qp_banner");
-            if (bannerVal) c.heroBanner = bannerVal;
-          } catch {}
-          setCfg(c); setCfgF(c);
-        } catch(e) { console.warn("load config error:", e); }
+        if (s) try { const c={...DEF,...JSON.parse(s.value)}; setCfg(c); setCfgF(c); } catch {}
         // Detectar retorno desde MercadoPago
         const params = new URLSearchParams(window.location.search);
         const pago = params.get("pago");
@@ -280,19 +272,8 @@ function App() {
       });
   }, []);
 
-  const saveR = async d => { try { await window.storage.set("qp_r", JSON.stringify(d)); } catch(e) { console.warn("saveR error:", e); } };
-  const saveS = async d => {
-    try {
-      // Separar el banner (puede ser muy grande) del resto de la config
-      const { heroBanner, ...rest } = d;
-      await window.storage.set("qp_s", JSON.stringify(rest));
-      if (heroBanner) {
-        await window.storage.set("qp_banner", heroBanner);
-      } else {
-        try { localStorage.removeItem("qp_banner"); } catch {}
-      }
-    } catch(e) { console.warn("saveS error:", e); throw e; }
-  };
+  const saveR = async d => { try { await window.storage.set("qp_r", JSON.stringify(d)); } catch {} };
+  const saveS = async d => { try { await window.storage.set("qp_s", JSON.stringify(d)); } catch {} };
 
   // Precios dinámicos desde config — siempre frescos desde cfg
   const precio        = Number(cfg.precio) > 0 ? Number(cfg.precio) : 1;
@@ -458,13 +439,8 @@ function App() {
       adminUser: (cfgF.adminUser||"").trim() || cfg.adminUser,
       adminPass: cfgF.adminPass || cfg.adminPass,
     };
-    setCfg(u); setCfgF(u);
-    try {
-      await saveS(u);
-      setCfgOk(true); setTimeout(()=>setCfgOk(false),2200);
-    } catch(e) {
-      alert("Error al guardar: " + e.message + "\nVerificá que el banner no sea demasiado grande.");
-    }
+    setCfg(u); setCfgF(u); await saveS(u);
+    setCfgOk(true); setTimeout(()=>setCfgOk(false),2200);
   };
 
   /* ════ LANDING ════ */
@@ -537,8 +513,8 @@ function App() {
       <div style={inner}>
         <Back onClick={goHome} />
         <div style={{ marginBottom:32 }}>
-          <div style={{ fontFamily:"Rubik", fontSize:22, fontWeight:700, color:C.cream, letterSpacing:0.5, marginBottom:6 }}>La Guitarreada</div>
-          <div style={{ fontFamily:"Rubik", fontSize:12, fontWeight:400, color:C.muted, letterSpacing:3, textTransform:"uppercase" }}>Sábado 18.04 · 22hs</div>
+          <div style={{ fontFamily:"Rubik", fontSize:22, fontWeight:700, color:C.cream, letterSpacing:0.5, marginBottom:6 }}>{cfg.eventoNombre || "La Guitarreada"}</div>
+          <div style={{ fontFamily:"Rubik", fontSize:12, fontWeight:400, color:C.muted, letterSpacing:3, textTransform:"uppercase" }}>{cfg.eventoDia || "Sábado"} {cfg.eventoFechaCorta || "18.04"} · {cfg.eventoHora || "22hs"}</div>
         </div>
 
         <Field label="Nombre y apellido" value={form.nombre} onChange={v=>setForm(f=>({...f,nombre:v}))} placeholder="María González" />
@@ -553,14 +529,14 @@ function App() {
             <span style={{ fontFamily:"Rubik", fontSize:36, fontWeight:200, color:C.cream, minWidth:36, textAlign:"center" }}>{form.qty}</span>
             <button onClick={()=>setForm(f=>({...f,qty:Math.min(lib,f.qty+1)}))}
               style={{ width:36, height:36, background:"transparent", border:`1px solid ${C.dim}`, color:C.cream, fontSize:20, cursor:"pointer", fontWeight:200, borderRadius:4 }}>+</button>
-            <span style={{ fontFamily:"Rubik", fontSize:13, color:C.muted }}>{form.qty} × $15.000</span>
+            <span style={{ fontFamily:"Rubik", fontSize:13, color:C.muted }}>{form.qty} × ${fmt(precio)}</span>
           </div>
         </div>
 
         <HR />
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:32 }}>
           <span style={{ fontFamily:"Rubik", fontSize:11, color:C.muted, textTransform:"uppercase", letterSpacing:1.5 }}>Total</span>
-          <span style={{ fontFamily:"Rubik", fontSize:36, fontWeight:200, color:C.sol }}>${fmt(form.qty*PRICE)}</span>
+          <span style={{ fontFamily:"Rubik", fontSize:36, fontWeight:200, color:C.sol }}>${fmt(form.qty*precio)}</span>
         </div>
         {formErr && <div style={{ fontFamily:"Rubik", fontSize:13, color:C.danger, marginBottom:14, padding:"10px 14px", background:"rgba(231,76,60,0.1)", borderLeft:`3px solid ${C.danger}` }}>{formErr}</div>}
         <Btn onClick={submit}>Continuar →</Btn>
@@ -569,300 +545,160 @@ function App() {
   );
 
   /* ════ CHOOSE PAYMENT ════ */
-  if (view==="choose-payment") return (
-    <div style={{ ...base, background:"#0d0d0d", padding:"40px 28px 64px" }}>
-      <style>{GF}</style>
-      <div style={inner}>
-        <Back onClick={()=>go("form")} />
-        <div style={{ marginBottom:32 }}>
-          <div style={{ fontFamily:"Rubik", fontSize:22, fontWeight:700, color:C.cream, marginBottom:4 }}>La Guitarreada</div>
-          <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, letterSpacing:2, textTransform:"uppercase" }}>Sábado 18.04 · 22hs</div>
-        </div>
-
-        <div style={{ fontFamily:"Rubik", fontSize:10, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:20 }}>Elegí cómo pagar</div>
-
-        {/* Transfer option */}
-        <div onClick={()=>{
-            setPayMethod("transfer");
-            setPending({ id:genId(), nombre:form.nombre.trim(), email:form.email.trim(),
-              telefono:form.tel.trim(), cantidad:form.qty, total:totalTransfer,
-              status:"pendiente", createdAt:new Date().toLocaleString("es-AR"), metodoPago:"transferencia" });
-            go("payment-transfer");
-          }}
-          style={{ border:`1px solid ${C.dim}`, borderRadius:8, padding:"20px", marginBottom:12, cursor:"pointer",
-            background:"rgba(245,239,224,0.03)", transition:"all .2s" }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
-            <div>
-              <div style={{ fontFamily:"Rubik", fontSize:16, fontWeight:600, color:C.cream }}>Transferencia bancaria</div>
-              <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, marginTop:3 }}>Sin service charge</div>
-            </div>
-            <div style={{ textAlign:"right" }}>
-              <div style={{ fontFamily:"Rubik", fontSize:24, fontWeight:200, color:C.sol }}>${fmt(totalTransfer)}</div>
-            </div>
-          </div>
-          <div style={{ fontFamily:"Rubik", fontSize:11, color:"rgba(46,204,113,0.7)", marginTop:4 }}>✓ Ahorrás ${fmt(totalMP - totalTransfer)}</div>
-        </div>
-
-        {/* MP option */}
-        <div onClick={()=>{
-            setPayMethod("mp");
-            setPending({ id:genId(), nombre:form.nombre.trim(), email:form.email.trim(),
-              telefono:form.tel.trim(), cantidad:form.qty, total:totalMP,
-              status:"pendiente", createdAt:new Date().toLocaleString("es-AR"), metodoPago:"mercadopago" });
-            go("payment");
-          }}
-          style={{ border:`1px solid ${C.dim}`, borderRadius:8, padding:"20px", marginBottom:24, cursor:"pointer",
-            background:"rgba(245,239,224,0.03)", transition:"all .2s" }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
-            <div>
-              <div style={{ fontFamily:"Rubik", fontSize:16, fontWeight:600, color:C.cream }}>MercadoPago</div>
-              <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, marginTop:3 }}>Incluye 12% service charge</div>
-            </div>
-            <div style={{ textAlign:"right" }}>
-              <div style={{ fontFamily:"Rubik", fontSize:24, fontWeight:200, color:C.cream }}>${fmt(totalMP)}</div>
-              <div style={{ fontFamily:"Rubik", fontSize:11, color:C.muted, textDecoration:"line-through" }}>${fmt(totalTransfer)}</div>
-            </div>
-          </div>
-          <div style={{ fontFamily:"Rubik", fontSize:11, color:"rgba(0,158,227,0.7)", marginTop:4 }}>→ Pago instantáneo</div>
-        </div>
-
-        <div style={{ fontFamily:"Rubik", fontSize:11, fontWeight:300, color:C.muted, textAlign:"center", lineHeight:1.7 }}>
-          {form.qty} entrada{form.qty>1?"s":""} · {form.nombre.trim()}
-        </div>
-      </div>
-    </div>
-  );
-
   /* ════ PAYMENT TRANSFER ════ */
-  if (view==="payment-transfer") return (
-    <div style={{ ...base, background:"#0d0d0d", padding:"40px 28px 64px" }}>
+  /* ════ PAYMENT ════ */
+  const PaymentShell = ({ children, onBack }) => (
+    <div style={{ fontFamily:"Rubik", minHeight:"100vh", position:"relative" }}>
       <style>{GF}</style>
-      <div style={inner}>
-        <Back onClick={()=>go("choose-payment")} />
-
-        <div style={{ marginBottom:28 }}>
-          <div style={{ fontFamily:"Rubik", fontSize:10, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:6 }}>Total a transferir</div>
-          <div style={{ fontFamily:"Rubik", fontSize:52, fontWeight:200, color:C.sol, lineHeight:1 }}>${fmt(totalTransfer)}</div>
-          <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, marginTop:4 }}>{form.qty} entrada{form.qty>1?"s":""} · sin service charge</div>
+      <style>{`
+        .pay-bg{position:fixed;top:0;left:0;right:0;bottom:0;z-index:0;background-size:cover;background-position:35% center;filter:blur(18px) brightness(.35);transform:scale(1.05)}
+        .pay-ov{position:fixed;top:0;left:0;right:0;bottom:0;z-index:1;background:rgba(6,2,6,.55)}
+        .pay-wrap{position:relative;z-index:2;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 18px 48px}
+        .pay-modal{width:100%;max-width:440px;background:rgba(10,4,8,.88);backdrop-filter:blur(32px);-webkit-backdrop-filter:blur(32px);border:1px solid rgba(245,239,224,.1);border-radius:20px;padding:28px 24px 32px;max-height:92vh;overflow-y:auto}
+        .pay-modal::-webkit-scrollbar{width:4px} .pay-modal::-webkit-scrollbar-track{background:transparent} .pay-modal::-webkit-scrollbar-thumb{background:rgba(245,239,224,.15);border-radius:2px}
+      `}</style>
+      <div className="pay-bg" style={{ backgroundImage:`url(${cfg.heroBanner ? "data:image/jpeg;base64,"+cfg.heroBanner : "data:image/jpeg;base64,"+HERO_B64})` }} />
+      <div className="pay-ov" />
+      <div className="pay-wrap">
+        <div className="pay-modal">
+          <button onClick={onBack} style={{ background:"none", border:"none", color:"rgba(245,239,224,.4)", cursor:"pointer", fontSize:11, fontFamily:"Rubik", fontWeight:500, letterSpacing:2, textTransform:"uppercase", marginBottom:28, padding:0, display:"flex", alignItems:"center", gap:8 }}>
+            ← Volver
+          </button>
+          {children}
         </div>
-
-        <HR />
-
-        {/* Bank data */}
-        <div style={{ marginBottom:28 }}>
-          <div style={{ fontFamily:"Rubik", fontSize:10, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:16 }}>Datos de transferencia</div>
-
-          {/* Titular */}
-          <div style={{ marginBottom:16, padding:"14px 0", borderBottom:`1px solid ${C.creamDim}` }}>
-            <div style={{ fontFamily:"Rubik", fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1.5, marginBottom:4 }}>Titular</div>
-            <div style={{ fontFamily:"Rubik", fontSize:16, fontWeight:500, color:C.cream }}>{BANK.titular}</div>
-            <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted }}>{BANK.banco}</div>
-          </div>
-
-          {/* Alias */}
-          <div style={{ marginBottom:12, padding:"14px 0", borderBottom:`1px solid ${C.creamDim}` }}>
-            <div style={{ fontFamily:"Rubik", fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1.5, marginBottom:6 }}>Alias</div>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div style={{ fontFamily:"Rubik", fontSize:20, fontWeight:600, color:C.cream, letterSpacing:1 }}>{BANK.alias}</div>
-              <button onClick={()=>copyText(BANK.alias, "alias")}
-                style={{ background:copied==="alias"?"rgba(46,204,113,0.15)":"rgba(245,239,224,0.06)",
-                  border:`1px solid ${copied==="alias"?C.success:C.dim}`,
-                  color:copied==="alias"?C.success:C.cream, cursor:"pointer",
-                  fontFamily:"Rubik", fontSize:11, fontWeight:600, letterSpacing:1.5,
-                  padding:"8px 16px", borderRadius:99, transition:"all .2s" }}>
-                {copied==="alias" ? "✓ Copiado" : "Copiar"}
-              </button>
-            </div>
-          </div>
-
-          {/* CVU */}
-          <div style={{ padding:"14px 0" }}>
-            <div style={{ fontFamily:"Rubik", fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1.5, marginBottom:6 }}>CVU</div>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div style={{ fontFamily:"Rubik", fontSize:13, fontWeight:400, color:C.cream, letterSpacing:0.5, fontVariantNumeric:"tabular-nums" }}>{BANK.cvu}</div>
-              <button onClick={()=>copyText(BANK.cvu, "cvu")}
-                style={{ background:copied==="cvu"?"rgba(46,204,113,0.15)":"rgba(245,239,224,0.06)",
-                  border:`1px solid ${copied==="cvu"?C.success:C.dim}`,
-                  color:copied==="cvu"?C.success:C.cream, cursor:"pointer",
-                  fontFamily:"Rubik", fontSize:11, fontWeight:600, letterSpacing:1.5,
-                  padding:"8px 16px", borderRadius:99, transition:"all .2s", flexShrink:0, marginLeft:8 }}>
-                {copied==="cvu" ? "✓ Copiado" : "Copiar"}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <HR />
-
-        {/* Comprobante upload */}
-        <div style={{ marginBottom:24 }}>
-          <div style={{ fontFamily:"Rubik", fontSize:10, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:12 }}>
-            Subí tu comprobante
-          </div>
-          <div style={{ fontFamily:"Rubik", fontSize:13, fontWeight:300, color:C.muted, marginBottom:16, lineHeight:1.6 }}>
-            Una vez realizada la transferencia, subí el comprobante para verificar tu pago automáticamente.
-          </div>
-
-          <label style={{ display:"block", cursor:"pointer" }}>
-            <input type="file" accept="image/*" style={{ display:"none" }}
-              onChange={async e => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = ev => {
-                  const base64 = ev.target.result.split(",")[1];
-                  setComprobante(base64);
-                  setAiStatus("idle");
-                };
-                reader.readAsDataURL(file);
-              }} />
-            <div style={{
-              border:`1.5px dashed ${comprobante?C.sol:C.dim}`,
-              borderRadius:8, padding:"24px",
-              textAlign:"center", transition:"all .2s",
-              background:comprobante?"rgba(204,154,30,0.05)":"transparent"
-            }}>
-              {comprobante ? (
-                <div>
-                  <img src={`data:image/jpeg;base64,${comprobante}`}
-                    style={{ maxWidth:"100%", maxHeight:160, objectFit:"contain", borderRadius:4, marginBottom:8 }} />
-                  <div style={{ fontFamily:"Rubik", fontSize:12, color:C.sol }}>✓ Comprobante cargado · tocá para cambiar</div>
-                </div>
-              ) : (
-                <div>
-                  <div style={{ fontSize:28, marginBottom:8 }}>📄</div>
-                  <div style={{ fontFamily:"Rubik", fontSize:13, color:C.muted }}>Tocá para subir comprobante</div>
-                  <div style={{ fontFamily:"Rubik", fontSize:11, color:"rgba(245,239,224,0.25)", marginTop:4 }}>JPG, PNG o captura de pantalla</div>
-                </div>
-              )}
-            </div>
-          </label>
-        </div>
-
-        {/* AI status */}
-        {aiStatus==="loading" && (
-          <div style={{ padding:"14px 16px", background:"rgba(0,158,227,0.08)", border:`1px solid rgba(0,158,227,0.2)`, borderRadius:8, marginBottom:12, textAlign:"center" }}>
-            <div style={{ fontFamily:"Rubik", fontSize:13, color:"#009EE3" }}>🔍 Verificando comprobante con IA...</div>
-          </div>
-        )}
-        {aiStatus==="ok" && (
-          <div style={{ padding:"14px 16px", background:"rgba(46,204,113,0.1)", border:`1px solid ${C.success}`, borderRadius:8, marginBottom:12 }}>
-            <div style={{ fontFamily:"Rubik", fontSize:13, color:C.success, fontWeight:600 }}>✓ Pago verificado — Reserva confirmada</div>
-            <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, marginTop:4 }}>Te enviamos la confirmación por email.</div>
-          </div>
-        )}
-        {aiStatus==="pending" && (
-          <div style={{ padding:"14px 16px", background:"rgba(243,156,18,0.1)", border:`1px solid ${C.pending}`, borderRadius:8, marginBottom:12 }}>
-            <div style={{ fontFamily:"Rubik", fontSize:13, color:C.pending, fontWeight:600 }}>⏳ Pago en revisión</div>
-            <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, marginTop:4 }}>{aiMsg || "Vamos a confirmar tu reserva en breve."}</div>
-          </div>
-        )}
-        {aiStatus==="error" && (
-          <div style={{ padding:"14px 16px", background:"rgba(231,76,60,0.1)", border:`1px solid ${C.danger}`, borderRadius:8, marginBottom:12 }}>
-            <div style={{ fontFamily:"Rubik", fontSize:13, color:C.danger }}>{aiMsg}</div>
-          </div>
-        )}
-
-        {aiStatus==="ok" || aiStatus==="pending" ? (
-          <Btn onClick={()=>go("success")}>Ver mi reserva →</Btn>
-        ) : (
-          <Btn onClick={()=>analyzeComprobante(comprobante)} disabled={!comprobante || aiStatus==="loading"}>
-            {aiStatus==="loading" ? "Verificando..." : "Verificar comprobante"}
-          </Btn>
-        )}
       </div>
     </div>
   );
 
-  /* ════ PAYMENT ════ */
-  if (view==="payment") return (
-    <div style={{ ...base, background:"#0d0d0d", padding:"40px 28px 64px" }}>
-      <style>{GF}</style>
+  if (view==="choose-payment") return (
+    <PaymentShell onBack={()=>go("form")}>
+      <div style={{ marginBottom:24 }}>
+        <div style={{ fontFamily:"Rubik", fontSize:20, fontWeight:700, color:C.cream, marginBottom:3 }}>{cfg.eventoNombre || "La Guitarreada"}</div>
+        <div style={{ fontFamily:"Rubik", fontSize:10, color:C.muted, letterSpacing:2, textTransform:"uppercase" }}>{cfg.eventoDia || "Sábado"} {cfg.eventoFechaCorta || "18.04"} · {cfg.eventoHora || "22hs"}</div>
+      </div>
+      <div style={{ fontFamily:"Rubik", fontSize:9, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:16 }}>Elegí cómo pagar</div>
 
+      {/* Transferencia */}
+      <div onClick={()=>{ setPayMethod("transfer"); setPending({ id:genId(), nombre:form.nombre.trim(), email:form.email.trim(), telefono:form.tel.trim(), cantidad:form.qty, total:totalTransfer, status:"pendiente", createdAt:new Date().toLocaleString("es-AR"), metodoPago:"transferencia" }); go("payment-transfer"); }}
+        style={{ border:`1px solid rgba(245,239,224,.1)`, borderRadius:12, padding:"16px 18px", marginBottom:10, cursor:"pointer", background:"rgba(245,239,224,.04)", transition:"all .2s" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+          <div>
+            <div style={{ fontFamily:"Rubik", fontSize:15, fontWeight:600, color:C.cream }}>Transferencia bancaria</div>
+            <div style={{ fontFamily:"Rubik", fontSize:11, color:C.muted, marginTop:2 }}>Sin service charge</div>
+          </div>
+          <div style={{ fontFamily:"Rubik", fontSize:22, fontWeight:200, color:C.sol }}>${fmt(totalTransfer)}</div>
+        </div>
+        <div style={{ fontFamily:"Rubik", fontSize:10, color:"rgba(46,204,113,.7)" }}>✓ Ahorrás ${fmt(totalMP - totalTransfer)}</div>
+      </div>
 
-
-      <div style={inner}>
-        <Back onClick={()=>go("form")} />
-
-        {/* Resumen */}
-        <div style={{ marginBottom:32 }}>
-          <div style={{ fontFamily:"Rubik", fontSize:22, fontWeight:700, color:C.cream, marginBottom:4 }}>La Guitarreada</div>
-          <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, letterSpacing:2, textTransform:"uppercase", marginBottom:24 }}>Sábado 18.04 · 22hs</div>
-          <div style={{ fontFamily:"Rubik", fontSize:10, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:6 }}>Total a abonar</div>
-          <div style={{ fontFamily:"Rubik", fontSize:52, fontWeight:200, color:C.sol, lineHeight:1 }}>${fmt(pending?.total)}</div>
-          <div style={{ fontFamily:"Rubik", fontSize:13, color:C.muted, marginTop:6 }}>
-            {pending?.cantidad} entrada{pending?.cantidad>1?"s":""} · {pending?.nombre}
+      {/* MercadoPago */}
+      <div onClick={()=>{ setPayMethod("mp"); setPending({ id:genId(), nombre:form.nombre.trim(), email:form.email.trim(), telefono:form.tel.trim(), cantidad:form.qty, total:totalMP, status:"pendiente", createdAt:new Date().toLocaleString("es-AR"), metodoPago:"mercadopago" }); go("payment"); }}
+        style={{ border:`1px solid rgba(245,239,224,.1)`, borderRadius:12, padding:"16px 18px", marginBottom:20, cursor:"pointer", background:"rgba(245,239,224,.04)", transition:"all .2s" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+          <div>
+            <div style={{ fontFamily:"Rubik", fontSize:15, fontWeight:600, color:C.cream }}>MercadoPago</div>
+            <div style={{ fontFamily:"Rubik", fontSize:11, color:C.muted, marginTop:2 }}>Incluye {cfg.serviceCharge || 12}% service charge</div>
+          </div>
+          <div style={{ textAlign:"right" }}>
+            <div style={{ fontFamily:"Rubik", fontSize:22, fontWeight:200, color:C.cream }}>${fmt(totalMP)}</div>
+            <div style={{ fontFamily:"Rubik", fontSize:10, color:C.muted, textDecoration:"line-through" }}>${fmt(totalTransfer)}</div>
           </div>
         </div>
+        <div style={{ fontFamily:"Rubik", fontSize:10, color:"rgba(0,158,227,.7)" }}>→ Pago instantáneo</div>
+      </div>
 
-        <HR />
+      <div style={{ fontFamily:"Rubik", fontSize:11, fontWeight:300, color:"rgba(245,239,224,.3)", textAlign:"center" }}>
+        {form.qty} entrada{form.qty>1?"s":""} · {form.nombre.trim()}
+      </div>
+    </PaymentShell>
+  );
 
-        {/* Pasos */}
-        <div style={{ marginBottom:28 }}>
-          {[
-            ["01", "Tocá el botón para abrir el pago"],
-            ["02", "Completá el pago en MercadoPago"],
-            ["03", "Volvé aquí y confirmá tu reserva"],
-          ].map(([n,t]) => (
-            <div key={n} style={{ display:"flex", gap:14, marginBottom:14, alignItems:"flex-start" }}>
-              <span style={{ fontFamily:"Rubik", fontSize:10, fontWeight:600, color:C.sol, minWidth:22 }}>{n}</span>
-              <span style={{ fontFamily:"Rubik", fontSize:14, fontWeight:300, color:C.cream, lineHeight:1.6 }}>{t}</span>
-            </div>
-          ))}
+  if (view==="payment-transfer") return (
+    <PaymentShell onBack={()=>go("choose-payment")}>
+      <div style={{ marginBottom:20 }}>
+        <div style={{ fontFamily:"Rubik", fontSize:9, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:5 }}>Total a transferir</div>
+        <div style={{ fontFamily:"Rubik", fontSize:48, fontWeight:200, color:C.sol, lineHeight:1 }}>${fmt(totalTransfer)}</div>
+        <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, marginTop:4 }}>{form.qty} entrada{form.qty>1?"s":""} · sin service charge</div>
+      </div>
+      <HR />
+      <div style={{ marginBottom:20 }}>
+        <div style={{ fontFamily:"Rubik", fontSize:9, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:14 }}>Datos de transferencia</div>
+        <div style={{ padding:"12px 0", borderBottom:`1px solid ${C.creamDim}`, marginBottom:12 }}>
+          <div style={{ fontFamily:"Rubik", fontSize:9, color:C.muted, textTransform:"uppercase", letterSpacing:1.5, marginBottom:4 }}>Titular</div>
+          <div style={{ fontFamily:"Rubik", fontSize:15, fontWeight:500, color:C.cream }}>{BANK.titular}</div>
+          <div style={{ fontFamily:"Rubik", fontSize:11, color:C.muted }}>{BANK.banco}</div>
         </div>
-
-        {/* Botón pagar */}
-        {mpError && (
-          <div style={{ padding:"12px 14px", background:"rgba(231,76,60,0.1)", border:`1px solid rgba(231,76,60,0.3)`, borderRadius:8, marginBottom:12 }}>
-            <span style={{ fontFamily:"Rubik", fontSize:13, color:C.danger }}>{mpError}</span>
+        <div style={{ padding:"12px 0", borderBottom:`1px solid ${C.creamDim}`, marginBottom:12 }}>
+          <div style={{ fontFamily:"Rubik", fontSize:9, color:C.muted, textTransform:"uppercase", letterSpacing:1.5, marginBottom:6 }}>Alias</div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div style={{ fontFamily:"Rubik", fontSize:19, fontWeight:600, color:C.cream, letterSpacing:1 }}>{BANK.alias}</div>
+            <button onClick={()=>copyText(BANK.alias, "alias")} style={{ background:copied==="alias"?"rgba(46,204,113,.15)":"rgba(245,239,224,.06)", border:`1px solid ${copied==="alias"?C.success:C.dim}`, color:copied==="alias"?C.success:C.cream, cursor:"pointer", fontFamily:"Rubik", fontSize:10, fontWeight:600, letterSpacing:1.5, padding:"7px 14px", borderRadius:99, transition:"all .2s" }}>
+              {copied==="alias" ? "✓ Copiado" : "Copiar"}
+            </button>
           </div>
-        )}
-        <button
-          onClick={async () => {
-            setMpLoading(true); setMpError("");
-            try {
-              const r = await fetch(`${BACKEND_URL}/api/create-preference`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  nombre:   pending?.nombre,
-                  email:    pending?.email,
-                  telefono: pending?.telefono,
-                  cantidad: pending?.cantidad,
-                  total:    pending?.total,
-                }),
-              });
-              const data = await r.json();
-              if (!r.ok) throw new Error(data.error || "Error al crear el pago");
-              // Guardar pending en storage para recuperar al volver de MP
-              await window.storage.set("qp_p", JSON.stringify(pending)).catch(()=>{});
-              // Redirigir a MP (no iframe, para que back_urls funcionen)
-              window.location.href = data.init_point;
-            } catch(e) {
-              setMpError("No se pudo conectar con MercadoPago. Intentá de nuevo.");
-            } finally {
-              setMpLoading(false);
-            }
-          }}
-          disabled={mpLoading}
-          style={{ width:"100%", padding:"17px 20px",
-            background: mpLoading ? "rgba(0,158,227,0.5)" : "#009EE3",
-            color:"#fff", border:"none", textAlign:"center", fontFamily:"Rubik",
-            fontSize:14, fontWeight:600, letterSpacing:2, textTransform:"uppercase",
-            cursor: mpLoading ? "not-allowed" : "pointer", borderRadius:"99px", marginBottom:10,
-            display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
-          {mpLoading ? "Conectando…" : "Pagar con MercadoPago"}
-        </button>
-
-        <HR my={20} />
-
-        <div style={{ padding:"14px 16px", background:"rgba(204,154,30,0.08)", border:`1px solid rgba(204,154,30,0.2)`, borderRadius:8, marginBottom:12 }}>
-          <span style={{ fontFamily:"Rubik", fontSize:13, color:C.muted }}>
-            Una vez que completes el pago en MercadoPago vas a ser redirigido automáticamente para confirmar tu reserva.
-          </span>
+        </div>
+        <div style={{ padding:"12px 0" }}>
+          <div style={{ fontFamily:"Rubik", fontSize:9, color:C.muted, textTransform:"uppercase", letterSpacing:1.5, marginBottom:6 }}>CVU</div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div style={{ fontFamily:"Rubik", fontSize:12, color:C.cream, letterSpacing:.5, fontVariantNumeric:"tabular-nums" }}>{BANK.cvu}</div>
+            <button onClick={()=>copyText(BANK.cvu, "cvu")} style={{ background:copied==="cvu"?"rgba(46,204,113,.15)":"rgba(245,239,224,.06)", border:`1px solid ${copied==="cvu"?C.success:C.dim}`, color:copied==="cvu"?C.success:C.cream, cursor:"pointer", fontFamily:"Rubik", fontSize:10, fontWeight:600, letterSpacing:1.5, padding:"7px 14px", borderRadius:99, transition:"all .2s", flexShrink:0, marginLeft:8 }}>
+              {copied==="cvu" ? "✓ Copiado" : "Copiar"}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+      <HR />
+      <div style={{ marginBottom:20 }}>
+        <div style={{ fontFamily:"Rubik", fontSize:9, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:10 }}>Subí tu comprobante</div>
+        <div style={{ fontFamily:"Rubik", fontSize:12, fontWeight:300, color:C.muted, marginBottom:14, lineHeight:1.6 }}>Subí el comprobante y lo verificamos automáticamente con IA.</div>
+        <label style={{ display:"block", cursor:"pointer" }}>
+          <input type="file" accept="image/*" style={{ display:"none" }} onChange={async e => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = ev => { setComprobante(ev.target.result.split(",")[1]); setAiStatus("idle"); }; reader.readAsDataURL(file); }} />
+          <div style={{ border:`1.5px dashed ${comprobante?C.sol:C.dim}`, borderRadius:10, padding:"20px", textAlign:"center", transition:"all .2s", background:comprobante?"rgba(204,154,30,.05)":"transparent" }}>
+            {comprobante ? (
+              <div><img src={`data:image/jpeg;base64,${comprobante}`} style={{ maxWidth:"100%", maxHeight:140, objectFit:"contain", borderRadius:4, marginBottom:8 }} /><div style={{ fontFamily:"Rubik", fontSize:11, color:C.sol }}>✓ Tocá para cambiar</div></div>
+            ) : (
+              <div><div style={{ fontSize:24, marginBottom:6 }}>📄</div><div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted }}>Tocá para subir comprobante</div><div style={{ fontFamily:"Rubik", fontSize:10, color:"rgba(245,239,224,.25)", marginTop:3 }}>JPG o PNG</div></div>
+            )}
+          </div>
+        </label>
+      </div>
+      {aiStatus==="loading" && <div style={{ padding:"12px 14px", background:"rgba(0,158,227,.08)", border:`1px solid rgba(0,158,227,.2)`, borderRadius:8, marginBottom:10, textAlign:"center" }}><div style={{ fontFamily:"Rubik", fontSize:12, color:"#009EE3" }}>🔍 Verificando con IA...</div></div>}
+      {aiStatus==="ok" && <div style={{ padding:"12px 14px", background:"rgba(46,204,113,.1)", border:`1px solid ${C.success}`, borderRadius:8, marginBottom:10 }}><div style={{ fontFamily:"Rubik", fontSize:12, color:C.success, fontWeight:600 }}>✓ Pago verificado — Reserva confirmada</div></div>}
+      {aiStatus==="pending" && <div style={{ padding:"12px 14px", background:"rgba(243,156,18,.1)", border:`1px solid ${C.pending}`, borderRadius:8, marginBottom:10 }}><div style={{ fontFamily:"Rubik", fontSize:12, color:C.pending, fontWeight:600 }}>⏳ Pago en revisión</div><div style={{ fontFamily:"Rubik", fontSize:11, color:C.muted, marginTop:3 }}>{aiMsg}</div></div>}
+      {aiStatus==="error" && <div style={{ padding:"12px 14px", background:"rgba(231,76,60,.1)", border:`1px solid ${C.danger}`, borderRadius:8, marginBottom:10 }}><div style={{ fontFamily:"Rubik", fontSize:12, color:C.danger }}>{aiMsg}</div></div>}
+      {aiStatus==="ok" || aiStatus==="pending" ? (
+        <Btn onClick={()=>go("success")}>Ver mi reserva →</Btn>
+      ) : (
+        <Btn onClick={()=>analyzeComprobante(comprobante)} disabled={!comprobante || aiStatus==="loading"}>
+          {aiStatus==="loading" ? "Verificando..." : "Verificar comprobante"}
+        </Btn>
+      )}
+    </PaymentShell>
+  );
+
+  if (view==="payment") return (
+    <PaymentShell onBack={()=>go("choose-payment")}>
+      <div style={{ marginBottom:24 }}>
+        <div style={{ fontFamily:"Rubik", fontSize:9, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:5 }}>Total a abonar</div>
+        <div style={{ fontFamily:"Rubik", fontSize:48, fontWeight:200, color:C.sol, lineHeight:1 }}>${fmt(pending?.total)}</div>
+        <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, marginTop:5 }}>{pending?.cantidad} entrada{pending?.cantidad>1?"s":""} · {pending?.nombre}</div>
+      </div>
+      <HR />
+      <div style={{ marginBottom:22 }}>
+        {[["01","Tocá el botón para abrir el pago"],["02","Completá el pago en MercadoPago"],["03","Serás redirigido automáticamente"]].map(([n,t]) => (
+          <div key={n} style={{ display:"flex", gap:14, marginBottom:12, alignItems:"flex-start" }}>
+            <span style={{ fontFamily:"Rubik", fontSize:9, fontWeight:600, color:C.sol, minWidth:20 }}>{n}</span>
+            <span style={{ fontFamily:"Rubik", fontSize:13, fontWeight:300, color:C.cream, lineHeight:1.6 }}>{t}</span>
+          </div>
+        ))}
+      </div>
+      {mpError && <div style={{ padding:"10px 14px", background:"rgba(231,76,60,.1)", border:`1px solid rgba(231,76,60,.3)`, borderRadius:8, marginBottom:10 }}><span style={{ fontFamily:"Rubik", fontSize:12, color:C.danger }}>{mpError}</span></div>}
+      <button onClick={async () => { setMpLoading(true); setMpError(""); try { const r = await fetch(`${BACKEND_URL}/api/create-preference`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ nombre:pending?.nombre, email:pending?.email, telefono:pending?.telefono, cantidad:pending?.cantidad, total:pending?.total }) }); const data = await r.json(); if (!r.ok) throw new Error(data.error || "Error al crear el pago"); await window.storage.set("qp_p", JSON.stringify(pending)).catch(()=>{}); window.location.href = data.init_point; } catch(e) { setMpError("No se pudo conectar con MercadoPago. Intentá de nuevo."); } finally { setMpLoading(false); } }}
+        disabled={mpLoading}
+        style={{ width:"100%", padding:"16px 20px", background:mpLoading?"rgba(0,158,227,.5)":"#009EE3", color:"#fff", border:"none", textAlign:"center", fontFamily:"Rubik", fontSize:13, fontWeight:600, letterSpacing:2, textTransform:"uppercase", cursor:mpLoading?"not-allowed":"pointer", borderRadius:"99px", marginBottom:10, display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+        {mpLoading ? "Conectando…" : "Pagar con MercadoPago"}
+      </button>
+    </PaymentShell>
   );
 
   /* ════ SUCCESS ════ */
