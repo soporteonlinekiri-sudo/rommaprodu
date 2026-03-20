@@ -1,0 +1,8 @@
+{
+  "name": "quepena-backend",
+  "version": "1.0.0",
+  "description": "Backend MercadoPago para ¡Qué Peña!",
+  "scripts": {
+    "build": "echo 'No build needed'"
+  }
+}
