@@ -275,9 +275,9 @@ function App() {
   const saveR = async d => { try { await window.storage.set("qp_r", JSON.stringify(d)); } catch {} };
   const saveS = async d => { try { await window.storage.set("qp_s", JSON.stringify(d)); } catch {} };
 
-  // Precios dinámicos desde config
-  const precio       = cfg.precio || 1;
-  const serviceCharge = (cfg.serviceCharge || 12) / 100;
+  // Precios dinámicos desde config — siempre frescos desde cfg
+  const precio        = Number(cfg.precio) > 0 ? Number(cfg.precio) : 1;
+  const serviceCharge = Number(cfg.serviceCharge) > 0 ? Number(cfg.serviceCharge) / 100 : 0.12;
 
   const ocp  = reservas.filter(r=>r.status!=="cancelado").reduce((s,r)=>s+r.cantidad,0);
   const lib  = Math.max(0, cfg.cupo - ocp);
@@ -433,8 +433,8 @@ function App() {
       ...DEF,
       ...cfgF,
       cupo: parseInt(cfgF.cupo) || cfg.cupo,
-      precio: Number(cfgF.precio) || cfg.precio,
-      serviceCharge: Number(cfgF.serviceCharge) || 12,
+      precio: Number(cfgF.precio) > 0 ? Number(cfgF.precio) : (Number(cfg.precio) > 0 ? Number(cfg.precio) : 1),
+      serviceCharge: Number(cfgF.serviceCharge) >= 0 ? Number(cfgF.serviceCharge) : 12,
       mpLink: (cfgF.mpLink||"").trim(),
       adminUser: (cfgF.adminUser||"").trim() || cfg.adminUser,
       adminPass: cfgF.adminPass || cfg.adminPass,
