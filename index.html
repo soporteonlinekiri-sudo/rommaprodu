@@ -246,6 +246,8 @@ function App() {
   const [lerr,       setLerr]      = useState(false);
   const [formErr,    setFormErr]   = useState("");
   const [comprobante,setComprobante] = useState(null);
+  const [comprobanteTipo, setComprobanteTipo] = useState("");      // 'application/pdf' | 'image/jpeg' | ...
+  const [comprobanteNombre, setComprobanteNombre] = useState(""); // nombre del archivo
   const [comprobanteEnviado, setComprobanteEnviado] = useState(false);
   const [copied,     setCopied]    = useState("");
   const [tab,        setTab]       = useState("reservas");   // reservas | eventos | config
@@ -380,7 +382,7 @@ function App() {
   const goHome = () => {
     setForm({nombre:"",email:"",tel:"",qty:1});
     setLf({u:"",p:""}); setLerr(false);
-    setComprobante(null); setEvSelId(null);
+    setComprobante(null); setComprobanteTipo(""); setComprobanteNombre(""); setEvSelId(null);
     setExpandedEv(null); setFormErr("");
     go("landing");
   };
@@ -471,31 +473,36 @@ function App() {
       <style>{`
         .lp-bg{position:fixed;top:0;left:0;right:0;bottom:0;z-index:0;background-size:cover;background-position:35% center}
         .lp-ov{position:fixed;top:0;left:0;right:0;bottom:0;z-index:1;background:linear-gradient(170deg,rgba(6,2,6,.65) 0%,rgba(6,2,6,.22) 42%,rgba(6,2,6,.93) 100%)}
-        .lp-content{position:relative;z-index:2;min-height:100vh;display:flex;flex-direction:column;justify-content:flex-end;padding:0 0 40px}
-        .lp-inner{width:100%;max-width:480px;margin:0 auto;padding:0 18px;display:flex;flex-direction:column;gap:10px}
-        .lp-brand{margin-bottom:6px}
-        .lp-bname{font-family:Rubik,sans-serif;font-size:38px;font-weight:800;color:#fff;line-height:1;text-shadow:0 2px 28px rgba(0,0,0,.7);letter-spacing:-.5px}
-        .lp-bsub{font-family:Rubik,sans-serif;font-size:9px;color:rgba(255,255,255,.35);letter-spacing:4px;text-transform:uppercase;margin-top:9px}
-        .lp-panel{background:rgba(6,2,6,.78);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border:1px solid rgba(245,239,224,.09);border-radius:14px;padding:17px 20px;transition:border-color .2s}
+        /* ── Layout base: ocupa exactamente la pantalla, sin scroll ── */
+        .lp-content{position:relative;z-index:2;height:100dvh;height:100vh;display:flex;flex-direction:column;justify-content:flex-end;padding:0 0 env(safe-area-inset-bottom,0px)}
+        .lp-inner{width:100%;max-width:480px;margin:0 auto;padding:0 16px 20px;display:flex;flex-direction:column;gap:8px}
+        .lp-brand{margin-bottom:4px}
+        .lp-bname{font-family:Rubik,sans-serif;font-size:clamp(28px,8vw,38px);font-weight:800;color:#fff;line-height:1;text-shadow:0 2px 28px rgba(0,0,0,.7);letter-spacing:-.5px}
+        .lp-bsub{font-family:Rubik,sans-serif;font-size:9px;color:rgba(255,255,255,.35);letter-spacing:4px;text-transform:uppercase;margin-top:6px}
+        .lp-panel{background:rgba(6,2,6,.78);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border:1px solid rgba(245,239,224,.09);border-radius:14px;padding:14px 18px;transition:border-color .2s}
         .lp-panel:hover{border-color:rgba(245,239,224,.18)}
         .lp-ev-card{background:rgba(6,2,6,.78);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border:1px solid rgba(245,239,224,.12);border-radius:14px;overflow:hidden;transition:border-color .2s}
-        .lp-ev-header{padding:16px 20px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px}
+        .lp-ev-header{padding:13px 18px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px}
         .lp-ev-header:hover{background:rgba(245,239,224,.03)}
-        .lp-ev-body{padding:0 20px 18px;border-top:1px solid rgba(245,239,224,.07)}
-        .lp-cta-wrap{background:rgba(6,2,6,.78);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border:1px solid rgba(245,239,224,.24);border-radius:14px;padding:5px;cursor:pointer;transition:all .2s}
+        .lp-ev-body{padding:0 18px 16px;border-top:1px solid rgba(245,239,224,.07)}
+        .lp-cta-wrap{background:rgba(6,2,6,.78);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border:1px solid rgba(245,239,224,.24);border-radius:14px;padding:4px;cursor:pointer;transition:all .2s}
         .lp-cta-wrap:hover{border-color:rgba(245,239,224,.45);background:rgba(6,2,6,.96)}
-        .lp-cta-in{background:rgba(245,239,224,.06);border-radius:10px;padding:15px 18px;display:flex;justify-content:space-between;align-items:center}
-        .lp-lbl{font-family:Rubik,sans-serif;font-size:8px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:rgba(245,239,224,.32);margin-bottom:5px}
-        .lp-ttl{font-family:Rubik,sans-serif;font-size:16px;font-weight:700;color:#f5efe0}
-        .lp-sub{font-family:Rubik,sans-serif;font-size:13px;color:rgba(245,239,224,.48);line-height:1.65;margin-top:4px}
-        .lp-arr{font-size:20px;color:rgba(204,154,30,.85);flex-shrink:0}
-        .lp-adm{background:none;border:none;color:rgba(245,239,224,.2);cursor:pointer;font-family:Rubik,sans-serif;font-size:9px;letter-spacing:2.5px;text-transform:uppercase;padding:8px 0 0;display:block;width:100%;text-align:center}
+        .lp-cta-in{background:rgba(245,239,224,.06);border-radius:10px;padding:13px 16px;display:flex;justify-content:space-between;align-items:center}
+        .lp-lbl{font-family:Rubik,sans-serif;font-size:8px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:rgba(245,239,224,.32);margin-bottom:4px}
+        .lp-ttl{font-family:Rubik,sans-serif;font-size:15px;font-weight:700;color:#f5efe0}
+        .lp-sub{font-family:Rubik,sans-serif;font-size:12px;color:rgba(245,239,224,.48);line-height:1.55;margin-top:3px}
+        .lp-arr{font-size:18px;color:rgba(204,154,30,.85);flex-shrink:0}
+        .lp-adm{background:none;border:none;color:rgba(245,239,224,.18);cursor:pointer;font-family:Rubik,sans-serif;font-size:9px;letter-spacing:2.5px;text-transform:uppercase;padding:6px 0 0;display:block;width:100%;text-align:center}
+        /* ── Cuando hay muchas tarjetas de eventos, permití scroll solo en esa zona ── */
+        .lp-cards-scroll{max-height:55vh;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+        .lp-cards-scroll::-webkit-scrollbar{display:none}
         @media(min-width:768px){
-          .lp-content{flex-direction:row!important;align-items:flex-end!important;justify-content:flex-end!important;padding:0 56px 56px 0!important}
+          .lp-content{height:100dvh;height:100vh;flex-direction:row!important;align-items:flex-end!important;justify-content:flex-end!important;padding:0 56px 56px 0!important}
           .lp-inner{margin:0!important;padding:0!important;max-width:360px!important}
           .lp-brand{position:fixed!important;bottom:56px!important;left:56px!important;margin-bottom:0!important;max-width:480px}
           .lp-bname{font-size:clamp(42px,4vw,60px)!important}
           .lp-adm{text-align:right!important}
+          .lp-cards-scroll{max-height:none!important;overflow:visible!important}
         }
       `}</style>
       <div className="lp-bg" style={{ backgroundImage:`url(${cfg.heroBanner?"data:image/jpeg;base64,"+cfg.heroBanner:"data:image/jpeg;base64,"+HERO_B64})` }} />
@@ -508,6 +515,8 @@ function App() {
             <div className="lp-bsub">La peña itinerante · Córdoba</div>
           </div>
 
+          {/* Tarjetas de eventos — zona con scroll si hay muchas */}
+          <div className="lp-cards-scroll">
           {/* Sin eventos activos */}
           {eventosActivos.length === 0 && (
             <div className="lp-panel">
@@ -570,6 +579,8 @@ function App() {
               </div>
             );
           })}
+
+          </div>{/* /lp-cards-scroll */}
 
           <button className="lp-adm" onClick={()=>go("admin-login")}>Administrar</button>
         </div>
@@ -656,18 +667,50 @@ function App() {
           Subí la foto del comprobante para confirmar tu reserva desde acá. Si preferís, también podés enviarlo por WhatsApp al número de abajo y lo confirmamos manualmente.
         </div>
         <label style={{ display:"block",cursor:"pointer" }}>
-          <input type="file" accept="image/*" style={{ display:"none" }} onChange={async e=>{
-            const file=e.target.files&&e.target.files[0];
-            if(!file) return;
-            const reader=new FileReader();
-            reader.onload=function(ev){ setComprobante(ev.target.result.split(",")[1]); };
-            reader.readAsDataURL(file);
-          }} />
+          {/* accept con PDF + imágenes — en iOS/Android abre el picker de archivos (no solo galería) */}
+          <input type="file" accept="image/*,application/pdf,.pdf" style={{ display:"none" }}
+            onChange={async e=>{
+              const file=e.target.files&&e.target.files[0];
+              if(!file) return;
+              const reader=new FileReader();
+              reader.onload=function(ev){
+                // Guardar base64 + tipo para saber si es PDF o imagen
+                const b64 = ev.target.result.split(",")[1];
+                setComprobante(b64);
+                setComprobanteTipo(file.type);
+                setComprobanteNombre(file.name);
+              };
+              reader.readAsDataURL(file);
+            }}
+          />
           <div style={{ border:`1.5px dashed ${comprobante?C.sol:C.dim}`,borderRadius:10,padding:"20px",textAlign:"center",background:comprobante?"rgba(204,154,30,.05)":"transparent" }}>
-            {comprobante?(
-              <div><img src={`data:image/jpeg;base64,${comprobante}`} style={{ maxWidth:"100%",maxHeight:140,objectFit:"contain",borderRadius:4,marginBottom:8 }}/><div style={{ fontFamily:"Rubik",fontSize:11,color:C.sol }}>✓ Tocá para cambiar</div></div>
-            ):(
-              <div><div style={{ fontSize:24,marginBottom:6 }}>📄</div><div style={{ fontFamily:"Rubik",fontSize:12,color:C.muted }}>Tocá para subir el comprobante</div><div style={{ fontFamily:"Rubik",fontSize:10,color:"rgba(245,239,224,.25)",marginTop:3 }}>JPG, PNG o captura de pantalla</div></div>
+            {comprobante ? (
+              comprobanteTipo==="application/pdf" ? (
+                /* Preview PDF */
+                <div>
+                  <div style={{ fontSize:36,marginBottom:8 }}>📑</div>
+                  <div style={{ fontFamily:"Rubik",fontSize:13,fontWeight:500,color:C.sol,marginBottom:4 }}>
+                    ✓ {comprobanteNombre||"comprobante.pdf"}
+                  </div>
+                  <div style={{ fontFamily:"Rubik",fontSize:10,color:"rgba(245,239,224,.35)" }}>PDF adjunto · Tocá para cambiar</div>
+                </div>
+              ) : (
+                /* Preview imagen */
+                <div>
+                  <img src={`data:${comprobanteTipo||"image/jpeg"};base64,${comprobante}`}
+                    style={{ maxWidth:"100%",maxHeight:140,objectFit:"contain",borderRadius:4,marginBottom:8 }}/>
+                  <div style={{ fontFamily:"Rubik",fontSize:11,color:C.sol }}>✓ Tocá para cambiar</div>
+                </div>
+              )
+            ) : (
+              <div>
+                <div style={{ fontSize:28,marginBottom:8 }}>📎</div>
+                <div style={{ fontFamily:"Rubik",fontSize:13,fontWeight:500,color:C.muted,marginBottom:4 }}>Adjuntar comprobante</div>
+                <div style={{ fontFamily:"Rubik",fontSize:10,color:"rgba(245,239,224,.28)",lineHeight:1.6 }}>
+                  PDF · JPG · PNG<br/>
+                  <span style={{ fontSize:9,letterSpacing:.5 }}>Tocá para abrir tus archivos</span>
+                </div>
+              </div>
             )}
           </div>
         </label>
@@ -696,7 +739,7 @@ function App() {
           createdAt:new Date().toLocaleString("es-AR"), metodoPago:"transferencia",
           eventoId:evActivo&&evActivo.id, eventoNombre:evActivo&&evActivo.nombre,
         };
-        const nuevaReserva = Object.assign({}, base, { comprobante:comprobante, status:"pendiente" });
+        const nuevaReserva = Object.assign({}, base, { comprobante:comprobante, comprobanteTipo:comprobanteTipo, comprobanteNombre:comprobanteNombre, status:"pendiente" });
         reservaConfirmadaRef.current = nuevaReserva;
         setPending(nuevaReserva);
         const evId = nuevaReserva.eventoId;
@@ -708,10 +751,10 @@ function App() {
           }
         }
         go("success");
-      }} disabled={!comprobante}>
+      }}>
         Confirmar reserva →
       </Btn>
-      {!comprobante&&<div style={{ fontFamily:"Rubik",fontSize:11,color:"rgba(245,239,224,.3)",textAlign:"center",marginTop:8 }}>Subí el comprobante para continuar</div>}
+      {!comprobante&&<div style={{ fontFamily:"Rubik",fontSize:11,color:"rgba(245,239,224,.3)",textAlign:"center",marginTop:8 }}>Podés continuar sin adjuntar — también podés enviar el comprobante por WhatsApp.</div>}
     </PayShell>
     );
   }
@@ -872,10 +915,24 @@ function App() {
                     {r.comprobante && (
                       <div style={{ marginTop:10 }}>
                         <div style={{ fontFamily:"Rubik",fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:6 }}>Comprobante</div>
-                        <img src={`data:image/jpeg;base64,${r.comprobante}`}
-                          style={{ maxWidth:"100%", maxHeight:200, objectFit:"contain", borderRadius:6, border:`1px solid ${C.creamDim}`, cursor:"pointer" }}
-                          onClick={()=>{ const w=window.open(); w.document.write(`<img src="data:image/jpeg;base64,${r.comprobante}" style="max-width:100%;"/>`); }}
-                          title="Click para ver completo" />
+                        {r.comprobanteTipo==="application/pdf" ? (
+                          <div onClick={()=>{
+                            const blob = new Blob([Uint8Array.from(atob(r.comprobante),c=>c.charCodeAt(0))],{type:"application/pdf"});
+                            const url = URL.createObjectURL(blob);
+                            window.open(url);
+                          }} style={{ display:"flex",alignItems:"center",gap:10,background:"rgba(245,239,224,.05)",border:`1px solid ${C.dim}`,borderRadius:8,padding:"10px 14px",cursor:"pointer" }}>
+                            <span style={{ fontSize:24 }}>📑</span>
+                            <div>
+                              <div style={{ fontFamily:"Rubik",fontSize:12,fontWeight:500,color:C.cream }}>{r.comprobanteNombre||"comprobante.pdf"}</div>
+                              <div style={{ fontFamily:"Rubik",fontSize:10,color:C.muted }}>Click para abrir el PDF</div>
+                            </div>
+                          </div>
+                        ) : (
+                          <img src={`data:${r.comprobanteTipo||"image/jpeg"};base64,${r.comprobante}`}
+                            style={{ maxWidth:"100%", maxHeight:200, objectFit:"contain", borderRadius:6, border:`1px solid ${C.creamDim}`, cursor:"pointer" }}
+                            onClick={()=>{ const w=window.open(); w.document.write(`<img src="data:${r.comprobanteTipo||"image/jpeg"};base64,${r.comprobante}" style="max-width:100%;"/>`); }}
+                            title="Click para ver completo" />
+                        )}
                       </div>
                     )}
                   </div>
