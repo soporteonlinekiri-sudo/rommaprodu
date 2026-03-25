@@ -224,7 +224,6 @@ function App() {
   };
   const SERVICE_CHARGE = 0.12; // valor base, se sobreescribe dentro del componente
 
-  const [payMethod,   setPayMethod]   = useState(null); // null | "mp" | "transfer"
   const [comprobante, setComprobante] = useState(null); // base64
   const [aiStatus,    setAiStatus]    = useState("idle"); // idle | loading | ok | pending | error
   const [aiMsg,       setAiMsg]       = useState("");
@@ -466,32 +465,29 @@ function App() {
 
   /* ════ LANDING ════ */
   if (view==="landing") return (
-    <div style={{ fontFamily:"Rubik", minHeight:"100vh", position:"relative" }}>
+    <div style={{ fontFamily:"Rubik", minHeight:"100vh", position:"relative", display:"flex", flexDirection:"column", alignItems:"center" }}>
       <style>{GF}</style>
 
-      {/* ── PHOTO — solo en el banner visible, no detrás de la solapa ── */}
+      {/* ── PHOTO — cubre todo el viewport, la solapa tapa la parte inferior ── */}
       <div style={{
-        position:"fixed", top:0, left:0, right:0, height:"52vh", zIndex:0,
+        position:"fixed", top:0, left:0, right:0, bottom:0, zIndex:0,
         backgroundImage:`url(${cfg.heroBanner ? "data:image/jpeg;base64,"+cfg.heroBanner : "data:image/jpeg;base64,"+HERO_B64})`,
         backgroundSize:"cover", backgroundPosition:"35% center",
       }} />
-      {/* Negro debajo para que no se filtre nada */}
-      <div style={{ position:"fixed", top:"52vh", left:0, right:0, bottom:0, background:"#0d0d0d", zIndex:0 }} />
 
       {/* ── CONTENIDO ── */}
-      <div style={{ position:"relative", zIndex:1, minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center" }}>
+      <div style={{ position:"relative", zIndex:1, width:"100%", maxWidth:600, minHeight:"100vh", display:"flex", flexDirection:"column" }}>
 
-        {/* Espacio vacío sobre la solapa — la imagen ya tiene el contenido */}
-        <div style={{ flex:"0 0 52vh" }} />
+        {/* Espacio vacío — la foto ocupa el fondo */}
+        <div style={{ flex:1, minHeight:"55vh" }} />
 
-        {/* ── SOLAPA CREMA — sube sobre la foto ── */}
+        {/* ── SOLAPA CREMA ── */}
         <div style={{
-          width:"100%", maxWidth:480,
+          width:"100%",
           background:"#f0ece4",
           borderTopLeftRadius:36, borderTopRightRadius:36,
           padding:"38px 32px 56px",
-          boxShadow:"0 -12px 48px rgba(0,0,0,0.22)",
-          flex:1,
+          boxShadow:"0 -12px 48px rgba(0,0,0,0.3)",
         }}>
           <div style={{ fontFamily:"Rubik", fontSize:28, fontWeight:700, color:"#1D1D1B", marginBottom:10, textAlign:"center" }}>
             ¡Bienvenidos!
@@ -1033,10 +1029,10 @@ function App() {
             <Btn onClick={saveCfg} style={cfgOk?{color:C.success,borderColor:C.success}:{}}>{cfgOk?"Guardado ✓":"Guardar cambios"}</Btn>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
-  return null;
 }
 
 
