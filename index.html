@@ -274,25 +274,36 @@ function App() {
   const pend = reservasEv.filter(r=>r.status==="pendiente");
   const rec  = conf.reduce((s,r)=>s+r.total,0);
 
-  // ── Storage keys — por evento ───────────────────────────────────────────────
-  // CRÍTICO: cada evento tiene su propia clave de storage
-  // Las reservas de un evento NUNCA se borran ni se mezclan
+  // ── Storage — servidor como fuente de verdad, localStorage como caché ────────
+  // CRÍTICO: cada evento tiene su propia clave — las reservas NUNCA se borran
   const saveReservasEv = async (evId, lista) => {
-    const key = "qp_r_" + evId;
-    try {
-      localStorage.setItem(key, JSON.stringify(lista));
-      // También en window.storage por compatibilidad
-      await window.storage.set(key, JSON.stringify(lista)).catch(()=>{});
-    } catch(e) { console.warn("saveReservas:", e); }
+    // 1. Actualizar estado React inmediatamente (UI reactiva)
     setReservasMap(prev => ({ ...prev, [evId]: lista }));
+    // 2. Caché local
+    try { localStorage.setItem("qp_r_" + evId, JSON.stringify(lista)); } catch(e) {}
+    // 3. Servidor (fuente de verdad — sincroniza todos los dispositivos)
+    try {
+      await fetch("/api/save-reservas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ evId, reservas: lista }),
+      });
+    } catch(e) { console.warn("saveReservas server:", e); }
   };
 
   const saveEventosList = async (lista) => {
-    try {
-      localStorage.setItem("qp_eventos", JSON.stringify(lista));
-      await window.storage.set("qp_eventos", JSON.stringify(lista)).catch(()=>{});
-    } catch(e) { console.warn("saveEventos:", e); }
+    // 1. Actualizar estado React inmediatamente
     setEventos(lista);
+    // 2. Caché local
+    try { localStorage.setItem("qp_eventos", JSON.stringify(lista)); } catch(e) {}
+    // 3. Servidor (fuente de verdad)
+    try {
+      await fetch("/api/save-eventos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(lista),
+      });
+    } catch(e) { console.warn("saveEventos server:", e); }
   };
 
   const saveS = async d => {
@@ -304,48 +315,64 @@ function App() {
     } catch(e) { console.warn("saveS:", e); throw e; }
   };
 
-  // ── Cargar todo al iniciar ──────────────────────────────────────────────────
+  // ── Cargar todo al iniciar — servidor como fuente de verdad ────────────────
   useEffect(() => {
-    // 1. Cargar lista de eventos
+    // ── Paso 1: Cargar caché local INMEDIATAMENTE (respuesta rápida) ──────────
     try {
       var evStr = localStorage.getItem("qp_eventos");
       if (evStr) {
         var evList = JSON.parse(evStr);
         setEventos(evList);
-        // 2. Cargar reservas de CADA evento por separado
         var rMap = {};
         evList.forEach(function(ev) {
-          try {
-            var rStr = localStorage.getItem("qp_r_" + ev.id);
-            if (rStr) rMap[ev.id] = JSON.parse(rStr);
-            else rMap[ev.id] = [];
-          } catch(e) { rMap[ev.id] = []; }
+          try { var rStr = localStorage.getItem("qp_r_"+ev.id); rMap[ev.id] = rStr ? JSON.parse(rStr) : []; }
+          catch(e) { rMap[ev.id] = []; }
         });
         setReservasMap(rMap);
-        // Seleccionar primer tab de evento en admin
         if (evList.length > 0) setTabEvento(evList[0].id);
       }
-    } catch(e) { console.warn("loadEventos:", e); }
+    } catch(e) {}
 
-    // 3. Cargar config global
-    const S = window.storage;
-    S.get("qp_s").catch(()=>null).then(function(s) {
-      if (s) try {
-        var parsed = JSON.parse(s.value);
-        var c = Object.assign({}, DEF, parsed);
+    try {
+      var cfgStr = localStorage.getItem("qp_s");
+      if (cfgStr) {
+        var c = Object.assign({}, DEF, JSON.parse(cfgStr));
         try { var bv = localStorage.getItem("qp_banner"); if(bv) c.heroBanner = bv; } catch(e) {}
         setCfg(c); setCfgF(c);
-      } catch(e) {}
-    });
+      }
+    } catch(e) {}
 
-    // 4. Fetch config del servidor en background
-    fetch("/api/get-config").then(function(res){ if(!res.ok) return; return res.json(); })
+    // ── Paso 2: Sobreescribir con datos del servidor (sincroniza dispositivos) ─
+    // Cargar config
+    fetch("/api/get-config")
+      .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(sc){
-        if(!sc||!Object.keys(sc).length) return;
-        var m=Object.assign({},DEF,sc);
+        if (!sc || !Object.keys(sc).length) return;
+        var m = Object.assign({}, DEF, sc);
         setCfg(m); setCfgF(m);
-        try{ var h=m.heroBanner||"";var r=Object.assign({},m);delete r.heroBanner;localStorage.setItem("qp_s",JSON.stringify(r));if(h)localStorage.setItem("qp_banner",h);}catch(e){}
-      }).catch(function(e){ console.warn("serverCfg:",e); });
+        try { var h=m.heroBanner||""; var rest=Object.assign({},m); delete rest.heroBanner; localStorage.setItem("qp_s",JSON.stringify(rest)); if(h) localStorage.setItem("qp_banner",h); } catch(e) {}
+      }).catch(function(e){ console.warn("get-config:",e); });
+
+    // Cargar eventos desde servidor
+    fetch("/api/get-eventos")
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(evList){
+        if (!evList || !Array.isArray(evList)) return;
+        setEventos(evList);
+        try { localStorage.setItem("qp_eventos", JSON.stringify(evList)); } catch(e) {}
+        if (evList.length > 0) setTabEvento(function(prev){ return prev || evList[0].id; });
+
+        // Cargar reservas de cada evento desde servidor
+        evList.forEach(function(ev) {
+          fetch("/api/get-reservas?evId=" + ev.id)
+            .then(function(r){ return r.ok ? r.json() : []; })
+            .then(function(lista){
+              if (!Array.isArray(lista)) lista = [];
+              setReservasMap(function(prev){ return Object.assign({}, prev, { [ev.id]: lista }); });
+              try { localStorage.setItem("qp_r_"+ev.id, JSON.stringify(lista)); } catch(e) {}
+            }).catch(function(e){ console.warn("get-reservas "+ev.id+":", e); });
+        });
+      }).catch(function(e){ console.warn("get-eventos:",e); });
   }, []);
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
