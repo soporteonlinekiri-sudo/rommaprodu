@@ -225,6 +225,7 @@ function App() {
 
   const [payMethod,   setPayMethod]   = useState(null); // null | "mp" | "transfer"
   const [comprobante, setComprobante] = useState(null); // base64
+  const [comprobanteEnviado, setComprobanteEnviado] = useState(false);
   const [aiStatus,    setAiStatus]    = useState("idle"); // idle | loading | ok | pending | error
   const [aiMsg,       setAiMsg]       = useState("");
   const [copied,      setCopied]      = useState("");
@@ -601,13 +602,6 @@ function App() {
 
   /* ════ PAYMENT TRANSFER ════ — única opción de pago */
   if (view==="choose-payment"||view==="payment-transfer") {
-    const [comprobanteEnviado, setComprobanteEnviado] = React.useState(false);
-    // Auto-crear pending al entrar
-    React.useEffect(()=>{
-      if (!pending || !pending.id) {
-        setPending({ id:genId(), nombre:form.nombre.trim(), email:form.email.trim(), telefono:form.tel.trim(), cantidad:form.qty, total:totalTransfer, status:"pendiente", createdAt:new Date().toLocaleString("es-AR"), metodoPago:"transferencia" });
-      }
-    },[]);
     return (
     <PayShell onBack={()=>go("form")} cfg={cfg} heroB64={HERO_B64}>
       <div style={{ marginBottom:18 }}>
