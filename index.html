@@ -232,281 +232,210 @@ function PayShell({children, onBack, cfg, heroB64}) {
 
 /* ════════════════ APP ════════════════ */
 function App() {
-  const [view,     setView]     = useState("landing");
-  const [reservas, setReservas] = useState([]);
-  const [cfg,      setCfg]      = useState(DEF);
-  const [form,     setForm]     = useState({ nombre:"", email:"", tel:"", qty:1 });
-  const [pending,  setPending]  = useState(null);
-  const [checked,  setChecked]  = useState(false);
-  const [lf,       setLf]       = useState({ u:"", p:"" });
-  const [lerr,     setLerr]     = useState(false);
-  const [cfgF,     setCfgF]     = useState(DEF);
-  const [cfgOk,    setCfgOk]    = useState(false);
-  const [formErr,  setFormErr]  = useState("");
-  const [mpOpen,   setMpOpen]   = useState(false);
-  const [mpLoading,setMpLoading]= useState(false);
-  const [mpError,  setMpError]  = useState("");
-  // ⬇ Reemplazá con la URL de tu proyecto en Vercel
-  const BACKEND_URL = "";
-  const BANK = {
-    alias:   "ROMMAPRODU",
-    cvu:     "0000076500000000420178",
-    titular: "Agustín Fernández",
-    banco:   "MercadoPago",
-  };
-  const SERVICE_CHARGE = 0.12; // valor base, se sobreescribe dentro del componente
-
-  const [payMethod,   setPayMethod]   = useState(null); // null | "mp" | "transfer"
-  const [comprobante, setComprobante] = useState(null); // base64
+  // ── Estado principal ────────────────────────────────────────────────────────
+  const [view,       setView]      = useState("landing");
+  const [eventos,    setEventos]   = useState([]);           // lista de eventos
+  const [evSelId,    setEvSelId]   = useState(null);         // evento seleccionado para reservar
+  const [reservasMap,setReservasMap] = useState({});         // { eventoId: [reservas] }
+  const [cfg,        setCfg]       = useState(DEF);
+  const [cfgF,       setCfgF]      = useState(DEF);
+  const [cfgOk,      setCfgOk]     = useState(false);
+  const [form,       setForm]      = useState({ nombre:"", email:"", tel:"", qty:1 });
+  const [pending,    setPending]   = useState(null);
+  const [lf,         setLf]        = useState({ u:"", p:"" });
+  const [lerr,       setLerr]      = useState(false);
+  const [formErr,    setFormErr]   = useState("");
+  const [comprobante,setComprobante] = useState(null);
   const [comprobanteEnviado, setComprobanteEnviado] = useState(false);
-  const [aiStatus,    setAiStatus]    = useState("idle"); // idle | loading | ok | pending | error
-  const [aiMsg,       setAiMsg]       = useState("");
-  const [copied,      setCopied]      = useState("");
-  const [filter,   setFilter]   = useState("todas");
-  const [tab,      setTab]      = useState("reservas");
-  const reservaConfirmadaRef = React.useRef(null); // sync ref para la pantalla de éxito
+  const [copied,     setCopied]    = useState("");
+  const [tab,        setTab]       = useState("reservas");   // reservas | eventos | config
+  const [tabEvento,  setTabEvento] = useState(null);         // eventoId activo en admin/reservas
+  const [filter,     setFilter]    = useState("todas");
+  const [evForm,     setEvForm]    = useState(null);         // evento en edición en admin
+  const [evOk,       setEvOk]      = useState(false);
+  const [expandedEv, setExpandedEv] = useState(null);        // evento expandido en landing
+  const reservaConfirmadaRef = React.useRef(null);
 
-  useEffect(() => {
-    const S = window.storage;
-    Promise.all([S.get("qp_r").catch(()=>null), S.get("qp_s").catch(()=>null), S.get("qp_p").catch(()=>null)])
-      .then(([r,s,p]) => {
-        if (r) try { setReservas(JSON.parse(r.value)); } catch(e) {}
-        if (s) try {
-          var parsed = JSON.parse(s.value);
-          var c = Object.assign({}, DEF, parsed);
-          try { var bv = localStorage.getItem("qp_banner"); if(bv) c.heroBanner = bv; } catch(e) {}
-          setCfg(c); setCfgF(c);
-        } catch(e) { console.warn("loadCfg:", e); }
-        // Detectar retorno desde MercadoPago
-        const params = new URLSearchParams(window.location.search);
-        const pago = params.get("pago");
-        if (pago === "aprobado" && p) {
-          try {
-            const pendingData = JSON.parse(p.value);
-            setPending(pendingData);
-            // Auto confirmar
-            const reservasActuales = r ? JSON.parse(r.value) : [];
-            const ya = reservasActuales.find(x => x.id === pendingData.id);
-            if (!ya) {
-              const u = [...reservasActuales, pendingData];
-              setReservas(u);
-              S.set("qp_r", JSON.stringify(u));
-              // Enviar email
-              emailjs.send("service_w7isuyl", "template_fzm4grk", {
-                to_email:   pendingData.email,
-                nombre:     pendingData.nombre,
-                reserva_id: pendingData.id,
-                cantidad:   pendingData.cantidad + " entrada" + (pendingData.cantidad > 1 ? "s" : ""),
-                total:      new Intl.NumberFormat("es-AR").format(pendingData.total),
-              }).catch(e => console.warn("Email:", e));
-            }
-            S.delete("qp_p").catch(()=>{});
-            // Limpiar URL
-            window.history.replaceState({}, "", window.location.pathname);
-            go("success");
-          } catch(e) { console.warn("Error al procesar pago:", e); }
-        } else if (pago === "rechazado") {
-          window.history.replaceState({}, "", window.location.pathname);
-          go("landing");
-        }
-      });
-    (function() {
-      fetch("/api/get-config").then(function(res){ if(!res.ok) return; return res.json(); })
-      .then(function(sc){ if(!sc||!Object.keys(sc).length) return; var m=Object.assign({},DEF,sc); setCfg(m); setCfgF(m); try{var h=m.heroBanner||"";var r=Object.assign({},m);delete r.heroBanner;localStorage.setItem("qp_s",JSON.stringify(r));if(h)localStorage.setItem("qp_banner",h);}catch(e){} })
-      .catch(function(e){ console.warn("serverCfg:",e); });
-    })();
-  }, []);
+  const BANK = { alias:"ROMMAPRODU", cvu:"0000076500000000420178", titular:"Agustín Fernández", banco:"MercadoPago" };
+  const BACKEND_URL = "";
 
-  const saveR = async d => { try { await window.storage.set("qp_r", JSON.stringify(d)); } catch(e) { console.warn(e); } };
+  // ── Evento activo seleccionado (para reservar) ─────────────────────────────
+  const evActivo = eventos.find(e => e.id === evSelId) || null;
+  const precio = evActivo ? Number(evActivo.precio) : 0;
+  const serviceCharge = Number(cfg.serviceCharge || 12) / 100;
+  const totalTransfer = form.qty * precio;
+  const totalMP       = Math.round(totalTransfer * (1 + serviceCharge));
+
+  // Reservas del evento activo
+  const reservasEv = evActivo ? (reservasMap[evActivo.id] || []) : [];
+  const ocp  = reservasEv.filter(r=>r.status!=="cancelado").reduce((s,r)=>s+r.cantidad,0);
+  const lib  = Math.max(0, (evActivo ? Number(evActivo.cupo) : 0) - ocp);
+  const conf = reservasEv.filter(r=>r.status==="confirmado");
+  const pend = reservasEv.filter(r=>r.status==="pendiente");
+  const rec  = conf.reduce((s,r)=>s+r.total,0);
+
+  // ── Storage keys — por evento ───────────────────────────────────────────────
+  // CRÍTICO: cada evento tiene su propia clave de storage
+  // Las reservas de un evento NUNCA se borran ni se mezclan
+  const saveReservasEv = async (evId, lista) => {
+    const key = "qp_r_" + evId;
+    try {
+      localStorage.setItem(key, JSON.stringify(lista));
+      // También en window.storage por compatibilidad
+      await window.storage.set(key, JSON.stringify(lista)).catch(()=>{});
+    } catch(e) { console.warn("saveReservas:", e); }
+    setReservasMap(prev => ({ ...prev, [evId]: lista }));
+  };
+
+  const saveEventosList = async (lista) => {
+    try {
+      localStorage.setItem("qp_eventos", JSON.stringify(lista));
+      await window.storage.set("qp_eventos", JSON.stringify(lista)).catch(()=>{});
+    } catch(e) { console.warn("saveEventos:", e); }
+    setEventos(lista);
+  };
+
   const saveS = async d => {
     try {
       var heroBanner = d.heroBanner || "";
       var rest = Object.assign({}, d); delete rest.heroBanner;
-      await fetch("/api/save-config", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(Object.assign({}, rest, {heroBanner:heroBanner})) });
+      await fetch("/api/save-config", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(Object.assign({}, rest, {heroBanner:heroBanner})) }).catch(()=>{});
       try { localStorage.setItem("qp_s", JSON.stringify(rest)); if(heroBanner) localStorage.setItem("qp_banner", heroBanner); else localStorage.removeItem("qp_banner"); } catch(e) {}
     } catch(e) { console.warn("saveS:", e); throw e; }
   };
 
-  // Precios dinámicos desde config — siempre frescos desde cfg
-  const precio        = Number(cfg.precio) > 0 ? Number(cfg.precio) : 15000;
-  const serviceCharge = Number(cfg.serviceCharge) > 0 ? Number(cfg.serviceCharge) / 100 : 0.12;
+  // ── Cargar todo al iniciar ──────────────────────────────────────────────────
+  useEffect(() => {
+    // 1. Cargar lista de eventos
+    try {
+      var evStr = localStorage.getItem("qp_eventos");
+      if (evStr) {
+        var evList = JSON.parse(evStr);
+        setEventos(evList);
+        // 2. Cargar reservas de CADA evento por separado
+        var rMap = {};
+        evList.forEach(function(ev) {
+          try {
+            var rStr = localStorage.getItem("qp_r_" + ev.id);
+            if (rStr) rMap[ev.id] = JSON.parse(rStr);
+            else rMap[ev.id] = [];
+          } catch(e) { rMap[ev.id] = []; }
+        });
+        setReservasMap(rMap);
+        // Seleccionar primer tab de evento en admin
+        if (evList.length > 0) setTabEvento(evList[0].id);
+      }
+    } catch(e) { console.warn("loadEventos:", e); }
 
-  const ocp  = reservas.filter(r=>r.status!=="cancelado").reduce((s,r)=>s+r.cantidad,0);
-  const lib  = Math.max(0, cfg.cupo - ocp);
-  const conf = reservas.filter(r=>r.status==="confirmado");
-  const pend = reservas.filter(r=>r.status==="pendiente");
-  const rec  = conf.reduce((s,r)=>s+r.total,0);
-  const filt = filter==="todas" ? reservas : reservas.filter(r=>r.status===filter);
+    // 3. Cargar config global
+    const S = window.storage;
+    S.get("qp_s").catch(()=>null).then(function(s) {
+      if (s) try {
+        var parsed = JSON.parse(s.value);
+        var c = Object.assign({}, DEF, parsed);
+        try { var bv = localStorage.getItem("qp_banner"); if(bv) c.heroBanner = bv; } catch(e) {}
+        setCfg(c); setCfgF(c);
+      } catch(e) {}
+    });
 
+    // 4. Fetch config del servidor en background
+    fetch("/api/get-config").then(function(res){ if(!res.ok) return; return res.json(); })
+      .then(function(sc){
+        if(!sc||!Object.keys(sc).length) return;
+        var m=Object.assign({},DEF,sc);
+        setCfg(m); setCfgF(m);
+        try{ var h=m.heroBanner||"";var r=Object.assign({},m);delete r.heroBanner;localStorage.setItem("qp_s",JSON.stringify(r));if(h)localStorage.setItem("qp_banner",h);}catch(e){}
+      }).catch(function(e){ console.warn("serverCfg:",e); });
+  }, []);
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
   const go     = v => { setView(v); window.scrollTo(0,0); };
   const goHome = () => {
     setForm({nombre:"",email:"",tel:"",qty:1});
-    setLf({u:"",p:""});
-    setLerr(false);
-    setPayMethod(null);
-    setComprobante(null);
-    setAiStatus("idle");
+    setLf({u:"",p:""}); setLerr(false);
+    setComprobante(null); setEvSelId(null);
+    setExpandedEv(null); setFormErr("");
     go("landing");
   };
-
   const copyText = (text, key) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(key);
-      setTimeout(() => setCopied(""), 2000);
-    });
+    navigator.clipboard.writeText(text).then(()=>{ setCopied(key); setTimeout(()=>setCopied(""),2000); });
   };
-
-  const totalBase     = form.qty * precio;
-  const totalMP       = Math.round(totalBase * (1 + serviceCharge));
-  const totalTransfer = totalBase;
 
   const submit = () => {
     if (!form.nombre.trim()) return setFormErr("El nombre es obligatorio.");
-    if (!form.email.trim()) return setFormErr("El email es obligatorio.");
-    if (!/\S+@\S+\.\S+/.test(form.email)) return setFormErr("El email no es válido.");
+    if (!form.email.trim() || !/\S+@\S+\.\S+/.test(form.email)) return setFormErr("El email no es válido.");
     if (!form.tel.trim()) return setFormErr("El WhatsApp es obligatorio.");
     if (form.qty > lib) return setFormErr("No hay suficiente cupo disponible.");
     setFormErr("");
-    setPayMethod("transfer");
-    const nuevoPending = {
-      id: genId(),
-      nombre: form.nombre.trim(),
-      email: form.email.trim(),
-      telefono: form.tel.trim(),
-      cantidad: form.qty,
-      total: form.qty * precio,
-      status: "pendiente",
-      createdAt: new Date().toLocaleString("es-AR"),
-      metodoPago: "transferencia",
+    const nuevaReserva = {
+      id: genId(), nombre:form.nombre.trim(), email:form.email.trim(),
+      telefono:form.tel.trim(), cantidad:form.qty, total:totalTransfer,
+      status:"pendiente", createdAt:new Date().toLocaleString("es-AR"),
+      metodoPago:"transferencia", eventoId: evActivo.id, eventoNombre: evActivo.nombre,
     };
-    setPending(nuevoPending);
+    setPending(nuevaReserva);
     go("payment-transfer");
   };
 
-  const analyzeComprobante = async (base64img) => {
-    setAiStatus("loading");
-    setAiMsg("");
-    try {
-      const pendingData = {
-        id: genId(),
-        nombre: form.nombre.trim(),
-        email: form.email.trim(),
-        telefono: form.tel.trim(),
-        cantidad: form.qty,
-        total: totalTransfer,
-        status: "pendiente",
-        createdAt: new Date().toLocaleString("es-AR"),
-        metodoPago: "transferencia",
-      };
-
-      const res = await fetch("/api/verify-comprobante", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imagen: base64img, montoEsperado: totalTransfer })
-      });
-
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || "Error al verificar");
-
-      if (!result.esComprobante) {
-        setAiStatus("error");
-        setAiMsg("La imagen no parece ser un comprobante de transferencia.");
-        return;
-      }
-
-      const montoOk = result.monto && Math.abs(result.monto - totalTransfer) < 10;
-      const confianzaAlta = result.confianza >= 90 && montoOk;
-
-      const status = confianzaAlta ? "confirmado" : "pendiente";
-      pendingData.status = status;
-      pendingData.aiConfianza = result.confianza;
-
-      setPending(pendingData);
-      const u = [...reservas, pendingData];
-      setReservas(u);
-      await saveR(u);
-
-      if (confianzaAlta) {
-        // Auto-confirmar con alta confianza: enviar email
-        try {
-          await emailjs.send("service_w7isuyl", "template_fzm4grk", {
-            to_email:   pendingData.email,
-            nombre:     pendingData.nombre,
-            reserva_id: pendingData.id,
-            cantidad:   pendingData.cantidad + " entrada" + (pendingData.cantidad > 1 ? "s" : ""),
-            total:      fmt(pendingData.total),
-          });
-        } catch(e) { console.warn("Email:", e); }
-        setAiStatus("ok");
-      } else {
-        // Pendiente: NO enviar email, esperar aprobación manual del admin
-        setAiStatus("pending");
-        setAiMsg(result.motivo || "Tu comprobante quedó pendiente de revisión. Te avisamos cuando se confirme.");
-      }
-
-    } catch(e) {
-      setAiStatus("error");
-      setAiMsg("Error al analizar el comprobante. Intentá de nuevo.");
-    }
-  };
-
-  const confirmR = async () => {
-    const u=[...reservas,pending];
-    setReservas(u);
-    await saveR(u);
-    // Enviar email de confirmación
-    try {
-      await emailjs.send("service_w7isuyl", "template_fzm4grk", {
-        to_email:   pending.email,
-        nombre:     pending.nombre,
-        reserva_id: pending.id,
-        cantidad:   pending.cantidad + " entrada" + (pending.cantidad > 1 ? "s" : ""),
-        total:      new Intl.NumberFormat("es-AR").format(pending.total),
-      });
-    } catch(e) {
-      console.warn("Email no enviado:", e);
-    }
-    go("success");
-  };
-  const chgSt = async (id, status) => {
-    const u = reservas.map(r => r.id === id ? {...r, status} : r);
-    setReservas(u);
-    await saveR(u);
-    // Si el admin confirma una reserva por transferencia → enviar email ahora
+  const chgSt = async (evId, rId, status) => {
+    const lista = reservasMap[evId] || [];
+    const u = lista.map(r => r.id === rId ? Object.assign({},r,{status}) : r);
+    await saveReservasEv(evId, u);
     if (status === "confirmado") {
-      const r = reservas.find(x => x.id === id);
-      if (r && r.metodoPago === "transferencia") {
+      const r = lista.find(x => x.id === rId);
+      if (r) {
         try {
-          await emailjs.send("service_w7isuyl", "template_fzm4grk", {
-            to_email:   r.email,
-            nombre:     r.nombre,
-            reserva_id: r.id,
-            cantidad:   r.cantidad + " entrada" + (r.cantidad > 1 ? "s" : ""),
-            total:      fmt(r.total),
+          await emailjs.send("service_w7isuyl","template_fzm4grk",{
+            to_email:r.email, nombre:r.nombre, reserva_id:r.id,
+            cantidad:r.cantidad+" entrada"+(r.cantidad>1?"s":""), total:fmt(r.total),
           });
-        } catch(e) { console.warn("Email:", e); }
+        } catch(e) { console.warn("Email:",e); }
       }
     }
   };
+
   const doLogin = () => {
     if (lf.u.trim()===cfg.adminUser && lf.p===cfg.adminPass) { setCfgF({...cfg}); setLerr(false); go("admin"); }
     else setLerr(true);
   };
+
   const saveCfg = async () => {
-    const u = {
-      ...DEF,
-      ...cfgF,
-      cupo: parseInt(cfgF.cupo) || cfg.cupo,
-      precio: Number(cfgF.precio) > 0 ? Number(cfgF.precio) : (Number(cfg.precio) > 0 ? Number(cfg.precio) : 1),
-      serviceCharge: Number(cfgF.serviceCharge) >= 0 ? Number(cfgF.serviceCharge) : 12,
-      mpLink: (cfgF.mpLink||"").trim(),
-      adminUser: (cfgF.adminUser||"").trim() || cfg.adminUser,
-      adminPass: cfgF.adminPass || cfg.adminPass,
+    const u = { ...DEF, ...cfgF,
+      cupo: parseInt(cfgF.cupo)||80, precio: Number(cfgF.precio)>0?Number(cfgF.precio):15000,
+      serviceCharge: Number(cfgF.serviceCharge)>=0?Number(cfgF.serviceCharge):12,
+      adminUser:(cfgF.adminUser||"").trim()||cfg.adminUser, adminPass:cfgF.adminPass||cfg.adminPass,
     };
     setCfg(u); setCfgF(u);
     try { await saveS(u); setCfgOk(true); setTimeout(function(){setCfgOk(false);},2200); }
     catch(e) { alert("Error al guardar: "+e.message); }
   };
+
+  // ── Guardar nuevo evento ────────────────────────────────────────────────────
+  const guardarEvento = async () => {
+    if (!evForm.nombre || !evForm.fecha) { alert("Nombre y fecha son obligatorios."); return; }
+    var esNuevo = !evForm.id;
+    var ev = Object.assign({ id: genId(), createdAt: new Date().toLocaleString("es-AR"), activo: true }, evForm);
+    var nuevaLista;
+    if (esNuevo) {
+      nuevaLista = [...eventos, ev];
+      // Inicializar reservas vacías para este evento (key separada, nunca se borra)
+      await saveReservasEv(ev.id, []);
+    } else {
+      nuevaLista = eventos.map(e => e.id === ev.id ? ev : e);
+    }
+    await saveEventosList(nuevaLista);
+    setEvForm(null); setEvOk(true); setTimeout(()=>setEvOk(false),2000);
+    if (esNuevo) setTabEvento(ev.id);
+  };
+
+  // ── Desactivar/activar evento ───────────────────────────────────────────────
+  const toggleEvento = async (evId) => {
+    var nuevaLista = eventos.map(e => e.id===evId ? Object.assign({},e,{activo:!e.activo}) : e);
+    await saveEventosList(nuevaLista);
+  };
+
+  // Eventos activos visibles en landing
+  var eventosActivos = eventos.filter(e => e.activo);
 
   /* ════ LANDING ════ */
   if (view==="landing") return (
@@ -522,6 +451,10 @@ function App() {
         .lp-bsub{font-family:Rubik,sans-serif;font-size:9px;color:rgba(255,255,255,.35);letter-spacing:4px;text-transform:uppercase;margin-top:9px}
         .lp-panel{background:rgba(6,2,6,.78);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border:1px solid rgba(245,239,224,.09);border-radius:14px;padding:17px 20px;transition:border-color .2s}
         .lp-panel:hover{border-color:rgba(245,239,224,.18)}
+        .lp-ev-card{background:rgba(6,2,6,.78);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border:1px solid rgba(245,239,224,.12);border-radius:14px;overflow:hidden;transition:border-color .2s}
+        .lp-ev-header{padding:16px 20px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px}
+        .lp-ev-header:hover{background:rgba(245,239,224,.03)}
+        .lp-ev-body{padding:0 20px 18px;border-top:1px solid rgba(245,239,224,.07)}
         .lp-cta-wrap{background:rgba(6,2,6,.78);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);border:1px solid rgba(245,239,224,.24);border-radius:14px;padding:5px;cursor:pointer;transition:all .2s}
         .lp-cta-wrap:hover{border-color:rgba(245,239,224,.45);background:rgba(6,2,6,.96)}
         .lp-cta-in{background:rgba(245,239,224,.06);border-radius:10px;padding:15px 18px;display:flex;justify-content:space-between;align-items:center}
@@ -529,11 +462,10 @@ function App() {
         .lp-ttl{font-family:Rubik,sans-serif;font-size:16px;font-weight:700;color:#f5efe0}
         .lp-sub{font-family:Rubik,sans-serif;font-size:13px;color:rgba(245,239,224,.48);line-height:1.65;margin-top:4px}
         .lp-arr{font-size:20px;color:rgba(204,154,30,.85);flex-shrink:0}
-        .lp-disabled{opacity:.38;cursor:not-allowed!important}
         .lp-adm{background:none;border:none;color:rgba(245,239,224,.2);cursor:pointer;font-family:Rubik,sans-serif;font-size:9px;letter-spacing:2.5px;text-transform:uppercase;padding:8px 0 0;display:block;width:100%;text-align:center}
         @media(min-width:768px){
           .lp-content{flex-direction:row!important;align-items:flex-end!important;justify-content:flex-end!important;padding:0 56px 56px 0!important}
-          .lp-inner{margin:0!important;padding:0!important;max-width:340px!important}
+          .lp-inner{margin:0!important;padding:0!important;max-width:360px!important}
           .lp-brand{position:fixed!important;bottom:56px!important;left:56px!important;margin-bottom:0!important;max-width:480px}
           .lp-bname{font-size:clamp(42px,4vw,60px)!important}
           .lp-adm{text-align:right!important}
@@ -545,50 +477,86 @@ function App() {
         <div className="lp-inner">
           <div className="lp-brand">
             <LogoWhite w={76} style={{ marginBottom:14, opacity:.8 }} />
-            <div className="lp-bname">{cfg.eventoNombre||"La Guitarreada"}</div>
-            <div className="lp-bsub">¡Qué Peña! · Córdoba</div>
+            <div className="lp-bname">¡Qué Peña!</div>
+            <div className="lp-bsub">La peña itinerante · Córdoba</div>
           </div>
-          <div className="lp-panel">
-            <div className="lp-lbl">El evento</div>
-            <div className="lp-ttl">{cfg.eventoFecha||"Sábado 18 de Abril · 2026"}</div>
-            <div className="lp-sub">{cfg.eventoHora||"22hs"} · {cfg.eventoLugar||"La Casona de Güemes"}<br/>{cfg.eventoBarrio||"Güemes · Córdoba Capital"}</div>
-          </div>
-          <div className="lp-panel">
-            <div className="lp-lbl">Entradas</div>
-            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-              <div>
-                <span style={{ fontFamily:"Rubik",fontSize:30,fontWeight:200,color:C.sol,lineHeight:1 }}>${fmt(precio)}</span>
-                <span style={{ fontFamily:"Rubik",fontSize:12,color:"rgba(245,239,224,.32)",marginLeft:8 }}>/ persona</span>
-              </div>
-              <div>
-                {lib>0&&lib<=20&&<span style={{ fontFamily:"Rubik",fontSize:9,fontWeight:600,color:lib<10?C.danger:C.pending,letterSpacing:1.5,textTransform:"uppercase" }}>⚡ {lib} lugar{lib!==1?"es":""}</span>}
-                {lib===0&&<span style={{ fontFamily:"Rubik",fontSize:9,fontWeight:600,color:C.danger,letterSpacing:1.5,textTransform:"uppercase" }}>Agotado</span>}
-                {lib>20&&<span style={{ fontFamily:"Rubik",fontSize:9,color:"rgba(46,204,113,.6)",letterSpacing:1.5 }}>Disponible</span>}
-              </div>
+
+          {/* Sin eventos activos */}
+          {eventosActivos.length === 0 && (
+            <div className="lp-panel">
+              <div className="lp-lbl">Próximas fechas</div>
+              <div className="lp-ttl" style={{ opacity:.5 }}>Sin eventos disponibles</div>
+              <div className="lp-sub">Seguinos en redes para enterarte de la próxima edición.</div>
             </div>
-          </div>
-          <div className={lib===0?"lp-panel lp-disabled":"lp-cta-wrap"} onClick={lib>0?()=>go("form"):undefined}>
-            <div className="lp-cta-in">
-              <div>
-                <div className="lp-lbl">Reservar</div>
-                <div className="lp-ttl" style={{ fontSize:15 }}>{lib===0?"Sin disponibilidad":"Asegurar mi lugar"}</div>
+          )}
+
+          {/* Card por cada evento activo */}
+          {eventosActivos.map(ev => {
+            var evReservas = reservasMap[ev.id] || [];
+            var evOcp = evReservas.filter(r=>r.status!=="cancelado").reduce((s,r)=>s+r.cantidad,0);
+            var evLib = Math.max(0, Number(ev.cupo) - evOcp);
+            var isOpen = expandedEv === ev.id;
+            return (
+              <div key={ev.id} className="lp-ev-card">
+                {/* Header clickeable */}
+                <div className="lp-ev-header" onClick={()=>setExpandedEv(isOpen ? null : ev.id)}>
+                  <div style={{ flex:1 }}>
+                    <div className="lp-lbl">Próximo evento</div>
+                    <div className="lp-ttl">{ev.nombre}</div>
+                    <div className="lp-sub" style={{ marginTop:3 }}>{ev.fecha} · {ev.hora}</div>
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4 }}>
+                    <div style={{ fontFamily:"Rubik", fontSize:18, fontWeight:200, color:C.sol }}>${fmt(Number(ev.precio))}</div>
+                    {evLib === 0
+                      ? <span style={{ fontFamily:"Rubik",fontSize:8,fontWeight:600,color:C.danger,letterSpacing:1.5,textTransform:"uppercase" }}>Agotado</span>
+                      : evLib <= 15
+                      ? <span style={{ fontFamily:"Rubik",fontSize:8,fontWeight:600,color:C.pending,letterSpacing:1.5,textTransform:"uppercase" }}>⚡ {evLib} lugares</span>
+                      : <span style={{ fontFamily:"Rubik",fontSize:8,color:"rgba(46,204,113,.6)",letterSpacing:1.5 }}>Disponible</span>
+                    }
+                    <span style={{ fontFamily:"Rubik",fontSize:14,color:"rgba(245,239,224,.3)",marginTop:2 }}>{isOpen?"▲":"▼"}</span>
+                  </div>
+                </div>
+
+                {/* Body expandible */}
+                {isOpen && (
+                  <div className="lp-ev-body">
+                    <div style={{ fontFamily:"Rubik",fontSize:12,color:C.muted,lineHeight:1.7,paddingTop:14,marginBottom:16 }}>
+                      📍 {ev.lugar}{ev.barrio?` · ${ev.barrio}`:""}<br/>
+                      🕐 {ev.hora}
+                    </div>
+                    {evLib > 0 ? (
+                      <button onClick={()=>{ setEvSelId(ev.id); setForm({nombre:"",email:"",tel:"",qty:1}); go("form"); }}
+                        style={{ width:"100%",background:"rgba(245,239,224,.06)",border:"1px solid rgba(245,239,224,.22)",borderRadius:10,padding:"13px 18px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",transition:"all .2s" }}>
+                        <div style={{ textAlign:"left" }}>
+                          <div className="lp-lbl">Reservar</div>
+                          <div className="lp-ttl" style={{ fontSize:14 }}>Asegurar mi lugar</div>
+                        </div>
+                        <span className="lp-arr">→</span>
+                      </button>
+                    ) : (
+                      <div style={{ background:"rgba(231,76,60,.08)",border:"1px solid rgba(231,76,60,.2)",borderRadius:10,padding:"13px 18px",textAlign:"center" }}>
+                        <span style={{ fontFamily:"Rubik",fontSize:13,color:C.danger }}>Sin disponibilidad</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <div className="lp-arr">→</div>
-            </div>
-          </div>
-          <button className="lp-adm" onClick={()=>go("admin-login")}>Administrar reservas</button>
+            );
+          })}
+
+          <button className="lp-adm" onClick={()=>go("admin-login")}>Administrar</button>
         </div>
       </div>
     </div>
   );
 
-
   /* ════ FORM ════ */
   if (view==="form") return (
-    <PayShell onBack={goHome} cfg={cfg} heroB64={HERO_B64}>
+    <PayShell onBack={()=>{ setEvSelId(null); go("landing"); }} cfg={cfg} heroB64={HERO_B64}>
+      {!evActivo ? <div style={{ color:C.danger, fontFamily:"Rubik" }}>Error: evento no encontrado.</div> : (<>
       <div style={{ marginBottom:24 }}>
-        <div style={{ fontFamily:"Rubik",fontSize:20,fontWeight:700,color:C.cream,marginBottom:3 }}>{cfg.eventoNombre||"La Guitarreada"}</div>
-        <div style={{ fontFamily:"Rubik",fontSize:9,color:C.muted,letterSpacing:2,textTransform:"uppercase" }}>{cfg.eventoDia||"Sábado"} {cfg.eventoFechaCorta||"18.04"} · {cfg.eventoHora||"22hs"}</div>
+        <div style={{ fontFamily:"Rubik",fontSize:20,fontWeight:700,color:C.cream,marginBottom:3 }}>{evActivo.nombre}</div>
+        <div style={{ fontFamily:"Rubik",fontSize:9,color:C.muted,letterSpacing:2,textTransform:"uppercase" }}>{evActivo.dia||"Sábado"} {evActivo.fechaCorta||evActivo.fecha} · {evActivo.hora}</div>
       </div>
       <Field label="Nombre y apellido" value={form.nombre} onChange={v=>setForm(f=>({...f,nombre:v}))} placeholder="María González" />
       <Field label="Email" type="email" value={form.email} onChange={v=>setForm(f=>({...f,email:v}))} placeholder="hola@email.com" />
@@ -603,35 +571,31 @@ function App() {
         </div>
       </div>
       <HR />
-      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:20 }}>
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:16 }}>
         <span style={{ fontFamily:"Rubik",fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5 }}>Total</span>
         <span style={{ fontFamily:"Rubik",fontSize:34,fontWeight:200,color:C.sol }}>${fmt(form.qty*precio)}</span>
       </div>
-
-      {/* Aviso lugares */}
       <div style={{ background:"rgba(245,239,224,.05)",border:"1px solid rgba(245,239,224,.1)",borderRadius:10,padding:"12px 14px",marginBottom:16 }}>
         <div style={{ fontFamily:"Rubik",fontSize:11,color:"rgba(245,239,224,.55)",lineHeight:1.65 }}>
-          ⚠️ <strong style={{ color:"rgba(245,239,224,.75)" }}>Los lugares son por orden de llegada.</strong> La reserva no garantiza mesa ni lugar preferencial — te recomendamos llegar lo más temprano posible.
+          ⚠️ <strong style={{ color:"rgba(245,239,224,.75)" }}>Los lugares son por orden de llegada.</strong> La reserva no garantiza mesa ni lugar preferencial — llegá temprano para conseguir el mejor lugar.
         </div>
       </div>
-
       {formErr&&<div style={{ fontFamily:"Rubik",fontSize:12,color:C.danger,marginBottom:12,padding:"10px 14px",background:"rgba(231,76,60,.1)",borderLeft:`3px solid ${C.danger}` }}>{formErr}</div>}
       <Btn onClick={submit}>Continuar →</Btn>
+      </>)}
     </PayShell>
   );
 
-  /* ════ PAYMENT TRANSFER ════ — única opción de pago */
-  if (view==="choose-payment"||view==="payment-transfer") {
+  /* ════ PAYMENT TRANSFER ════ */
+  if (view==="payment-transfer") {
     return (
     <PayShell onBack={()=>go("form")} cfg={cfg} heroB64={HERO_B64}>
       <div style={{ marginBottom:18 }}>
         <div style={{ fontFamily:"Rubik",fontSize:8,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:4 }}>Total a transferir</div>
         <div style={{ fontFamily:"Rubik",fontSize:46,fontWeight:200,color:C.sol,lineHeight:1 }}>${fmt(totalTransfer)}</div>
-        <div style={{ fontFamily:"Rubik",fontSize:11,color:C.muted,marginTop:4 }}>{form.qty} entrada{form.qty>1?"s":""}</div>
+        <div style={{ fontFamily:"Rubik",fontSize:11,color:C.muted,marginTop:4 }}>{form.qty} entrada{form.qty>1?"s":""} · {evActivo&&evActivo.nombre}</div>
       </div>
       <HR />
-
-      {/* Datos bancarios */}
       <div style={{ marginBottom:18 }}>
         <div style={{ fontFamily:"Rubik",fontSize:8,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:12 }}>Datos de transferencia</div>
         <div style={{ padding:"11px 0",borderBottom:`1px solid ${C.creamDim}` }}>
@@ -659,8 +623,6 @@ function App() {
         </div>
       </div>
       <HR />
-
-      {/* Subir comprobante — sin IA */}
       <div style={{ marginBottom:18 }}>
         <div style={{ fontFamily:"Rubik",fontSize:8,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:10 }}>Subí tu comprobante</div>
         <div style={{ fontFamily:"Rubik",fontSize:12,fontWeight:300,color:C.muted,marginBottom:12,lineHeight:1.6 }}>
@@ -671,10 +633,7 @@ function App() {
             const file=e.target.files&&e.target.files[0];
             if(!file) return;
             const reader=new FileReader();
-            reader.onload=function(ev){
-              setComprobante(ev.target.result.split(",")[1]);
-              setComprobanteEnviado(false);
-            };
+            reader.onload=function(ev){ setComprobante(ev.target.result.split(",")[1]); };
             reader.readAsDataURL(file);
           }} />
           <div style={{ border:`1.5px dashed ${comprobante?C.sol:C.dim}`,borderRadius:10,padding:"20px",textAlign:"center",background:comprobante?"rgba(204,154,30,.05)":"transparent" }}>
@@ -686,53 +645,40 @@ function App() {
           </div>
         </label>
       </div>
-
-      {/* Info WhatsApp */}
-      <div style={{ background:"rgba(37,211,102,.06)",border:"1px solid rgba(37,211,102,.2)",borderRadius:10,padding:"14px 16px",marginBottom:16 }}>
+      <div style={{ background:"rgba(37,211,102,.06)",border:"1px solid rgba(37,211,102,.2)",borderRadius:10,padding:"14px 16px",marginBottom:14 }}>
         <div style={{ fontFamily:"Rubik",fontSize:12,fontWeight:600,color:"rgba(37,211,102,.85)",marginBottom:6 }}>📱 Enviá el comprobante por WhatsApp</div>
         <div style={{ fontFamily:"Rubik",fontSize:12,color:C.muted,lineHeight:1.65 }}>
-          Mandá el comprobante al <strong style={{ color:C.cream }}>+54 373 547-6444</strong> y te confirmamos la reserva a la brevedad.<br/>
-          <span style={{ fontSize:11,color:"rgba(245,239,224,.4)" }}>También podés usar este número para modificaciones de reserva o consultas.</span>
+          Mandá el comprobante al <strong style={{ color:C.cream }}>+54 373 547-6444</strong> para que confirmemos tu reserva.<br/>
+          <span style={{ fontSize:11,color:"rgba(245,239,224,.4)" }}>También para modificaciones o consultas.</span>
         </div>
         <a href="https://wa.me/543735476444" target="_blank" rel="noopener noreferrer"
           style={{ display:"inline-block",marginTop:10,background:"rgba(37,211,102,.15)",border:"1px solid rgba(37,211,102,.3)",borderRadius:99,padding:"8px 18px",fontFamily:"Rubik",fontSize:12,fontWeight:600,color:"rgba(37,211,102,.9)",textDecoration:"none" }}>
           Abrir WhatsApp →
         </a>
       </div>
-
-      {/* Cumpleaños/festejo */}
       <div style={{ background:"rgba(204,154,30,.06)",border:"1px solid rgba(204,154,30,.18)",borderRadius:10,padding:"14px 16px",marginBottom:20 }}>
         <div style={{ fontFamily:"Rubik",fontSize:12,fontWeight:600,color:C.sol,marginBottom:4 }}>🎂 ¿Festejás algo especial?</div>
         <div style={{ fontFamily:"Rubik",fontSize:12,color:C.muted,lineHeight:1.65 }}>
-          Para cumpleaños u otro tipo de festejo, escribinos al <strong style={{ color:C.cream }}>+54 373 547-6444</strong> y te contamos beneficios, regalos y descuentos disponibles.
+          Para cumpleaños u otro festejo, escribinos al <strong style={{ color:C.cream }}>+54 373 547-6444</strong> y te contamos sobre beneficios, regalos y descuentos.
         </div>
       </div>
-
       <Btn onClick={async ()=>{
-        // Construir reserva con todos los datos frescos del form + comprobante
         const base = pending && pending.nombre ? pending : {
-          id: genId(),
-          nombre: form.nombre.trim(),
-          email: form.email.trim(),
-          telefono: form.tel.trim(),
-          cantidad: form.qty,
-          total: totalTransfer,
-          createdAt: new Date().toLocaleString("es-AR"),
-          metodoPago: "transferencia",
+          id:genId(), nombre:form.nombre.trim(), email:form.email.trim(),
+          telefono:form.tel.trim(), cantidad:form.qty, total:totalTransfer,
+          createdAt:new Date().toLocaleString("es-AR"), metodoPago:"transferencia",
+          eventoId:evActivo&&evActivo.id, eventoNombre:evActivo&&evActivo.nombre,
         };
-        const nuevaReserva = {
-          ...base,
-          comprobante: comprobante,
-          status: "pendiente",
-        };
-        // Guardar en ref síncronamente (setState es async, no llega a tiempo)
+        const nuevaReserva = Object.assign({}, base, { comprobante:comprobante, status:"pendiente" });
         reservaConfirmadaRef.current = nuevaReserva;
         setPending(nuevaReserva);
-        const yaExiste = reservas.find(r => r.id === nuevaReserva.id);
-        if (!yaExiste) {
-          const u = [...reservas, nuevaReserva];
-          setReservas(u);
-          try { await saveR(u); } catch(e) { console.warn("saveR:", e); }
+        const evId = nuevaReserva.eventoId;
+        if (evId) {
+          const lista = reservasMap[evId] || [];
+          const yaExiste = lista.find(r=>r.id===nuevaReserva.id);
+          if (!yaExiste) {
+            await saveReservasEv(evId, [...lista, nuevaReserva]);
+          }
         }
         go("success");
       }} disabled={!comprobante}>
@@ -743,42 +689,29 @@ function App() {
     );
   }
 
-  /* ════ PAYMENT MP (desactivado) ════ */
-  if (view==="payment") { go("payment-transfer"); return null; }
-
   /* ════ SUCCESS ════ */
   if (view==="success") {
-    // Leer del ref síncronamente primero (setPending es async y puede no haber llegado)
-    const sd = reservaConfirmadaRef.current || (pending && pending.nombre ? pending : {
-      nombre: form.nombre.trim(),
-      email: form.email.trim(),
-      cantidad: form.qty,
-      total: form.qty * precio,
-      id: "",
+    const sd = reservaConfirmadaRef.current || (pending&&pending.nombre?pending:{
+      nombre:form.nombre.trim(), email:form.email.trim(), cantidad:form.qty, total:totalTransfer, id:"",
+      eventoNombre:evActivo&&evActivo.nombre,
     });
     return (
     <div style={{ ...base, justifyContent:"center" }}>
       <style>{GF}</style>
       <div style={{ ...inner, textAlign:"center" }}>
         <LogoWhite w={140} style={{ margin:"0 auto 44px" }} />
-        <div style={{ fontFamily:"Rubik", fontSize:11, fontWeight:600, color:C.success, textTransform:"uppercase", letterSpacing:3, marginBottom:8 }}>✓ Reserva recibida</div>
+        <div style={{ fontFamily:"Rubik", fontSize:11, fontWeight:600, color:C.success, textTransform:"uppercase", letterSpacing:3, marginBottom:8 }}>¡Reserva recibida!</div>
         <p style={{ fontFamily:"Rubik", fontSize:14, fontWeight:300, color:C.muted, lineHeight:1.8, margin:"12px 0 32px" }}>
-          Revisaremos tu comprobante y te confirmamos<br/>por WhatsApp o email a la brevedad.
+          Tu comprobante fue enviado.<br/>Te confirmamos la reserva a la brevedad por WhatsApp o email.
         </p>
         <div style={{ textAlign:"left", marginBottom:24 }}>
           <Row label="Nombre"   value={sd.nombre} />
-          <Row label="Email"    value={sd.email} />
+          <Row label="Evento"   value={sd.eventoNombre} />
           <Row label="Entradas" value={`${sd.cantidad} persona${sd.cantidad>1?"s":""}`} />
           <Row label="Total"    value={`$${fmt(sd.total)}`} accent />
         </div>
-        {sd.id && <div style={{ fontFamily:"Rubik", fontSize:10, color:C.muted, letterSpacing:2, marginBottom:32 }}>
+        <div style={{ fontFamily:"Rubik", fontSize:10, color:C.muted, letterSpacing:2, marginBottom:32 }}>
           Reserva <span style={{ color:C.sol, letterSpacing:3 }}>#{sd.id}</span>
-        </div>}
-        <div style={{ background:"rgba(37,211,102,.06)",border:"1px solid rgba(37,211,102,.2)",borderRadius:10,padding:"14px 16px",marginBottom:28,textAlign:"left" }}>
-          <div style={{ fontFamily:"Rubik",fontSize:12,fontWeight:600,color:"rgba(37,211,102,.85)",marginBottom:4 }}>¿No recibís confirmación?</div>
-          <div style={{ fontFamily:"Rubik",fontSize:12,color:C.muted,lineHeight:1.6 }}>
-            Escribinos al <strong style={{ color:C.cream }}>+54 373 547-6444</strong> con tu comprobante y lo confirmamos al toque.
-          </div>
         </div>
         <Btn onClick={goHome}>Volver al inicio</Btn>
       </div>
@@ -786,7 +719,7 @@ function App() {
     );
   }
 
-/* ════ ADMIN LOGIN ════ */
+  /* ════ ADMIN LOGIN ════ */
   if (view==="admin-login") return (
     <PayShell onBack={goHome} cfg={cfg} heroB64={HERO_B64}>
       <div style={{ textAlign:"center",marginBottom:32 }}>
@@ -801,11 +734,22 @@ function App() {
   );
 
   /* ════ ADMIN ════ */
-  if (view==="admin") return (
+  if (view==="admin") {
+    // Reservas del evento seleccionado en el tab
+    const evTabReservas = tabEvento ? (reservasMap[tabEvento]||[]) : [];
+    const evTabConf = evTabReservas.filter(r=>r.status==="confirmado");
+    const evTabPend = evTabReservas.filter(r=>r.status==="pendiente");
+    const evTabOcp  = evTabReservas.filter(r=>r.status!=="cancelado").reduce((s,r)=>s+r.cantidad,0);
+    const evTabEv   = eventos.find(e=>e.id===tabEvento);
+    const evTabLib  = evTabEv ? Math.max(0, Number(evTabEv.cupo)-evTabOcp) : 0;
+    const evTabRec  = evTabConf.reduce((s,r)=>s+r.total,0);
+    const filt      = filter==="todas" ? evTabReservas : evTabReservas.filter(r=>r.status===filter);
+
+    return (
     <div style={{ ...base, paddingTop:40 }}>
       <style>{GF}</style>
       <div style={{ width:"100%", maxWidth:600 }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:44 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:32 }}>
           <div>
             <LogoWhite w={100} style={{ marginBottom:6 }} />
             <div style={{ fontFamily:"Rubik", fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:2 }}>Administración</div>
@@ -813,50 +757,72 @@ function App() {
           <button onClick={goHome} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:11, fontFamily:"Rubik", letterSpacing:2, textTransform:"uppercase" }}>Salir</button>
         </div>
 
-        {/* Stats grid */}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:1, background:C.creamDim, marginBottom:40 }}>
-          {[[conf.length,"Confirmadas",C.success],[pend.length,"Pendientes",C.pending],[lib,"Cupo libre",C.cream],[`$${fmt(rec)}`,"Recaudado",C.sol]].map(([v,l,c],i)=>(
-            <div key={i} style={{ padding:"18px 14px", background:C.vino }}>
-              <div style={{ fontFamily:"Rubik", fontSize:typeof v==="string"?16:30, fontWeight:200, color:c, lineHeight:1 }}>{v}</div>
-              <div style={{ fontFamily:"Rubik", fontSize:9, color:C.muted, textTransform:"uppercase", letterSpacing:1.5, marginTop:5 }}>{l}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Tabs */}
-        <div style={{ display:"flex", gap:24, marginBottom:28, borderBottom:`1px solid ${C.creamDim}` }}>
-          {[["reservas","Reservas"],["config","Configuración"]].map(([k,l])=>(
+        {/* Tabs principales */}
+        <div style={{ display:"flex", gap:0, marginBottom:32, borderBottom:`1px solid ${C.creamDim}` }}>
+          {[["reservas","Reservas"],["eventos","Eventos"],["config","Configuración"]].map(([k,l])=>(
             <button key={k} onClick={()=>setTab(k)} style={{ background:"none", border:"none",
-              borderBottom:`1px solid ${tab===k?C.sol:"transparent"}`, paddingBottom:10,
+              borderBottom:`2px solid ${tab===k?C.sol:"transparent"}`, paddingBottom:10, paddingRight:20,
               cursor:"pointer", fontFamily:"Rubik", fontSize:11, fontWeight:tab===k?600:400,
               color:tab===k?C.cream:C.muted, letterSpacing:2, textTransform:"uppercase", marginBottom:-1 }}>{l}</button>
           ))}
-          {tab==="reservas" && (
-            <button onClick={()=>{
-              const h=["ID","Nombre","Email","WhatsApp","Personas","Total","Estado","Fecha"];
-              const rows=reservas.map(r=>[r.id,r.nombre,r.email,r.telefono,r.cantidad,r.total,r.status,r.createdAt]);
-              const csv=[h,...rows].map(r=>r.map(v=>`"${v}"`).join(",")).join("\n");
-              const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
-              const url=URL.createObjectURL(blob);
-              Object.assign(document.createElement("a"),{href:url,download:"reservas_quepena.csv"}).click();
-              URL.revokeObjectURL(url);
-            }} style={{ marginLeft:"auto", background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:10, fontFamily:"Rubik", letterSpacing:2, textTransform:"uppercase", paddingBottom:10 }}>↓ CSV</button>
-          )}
         </div>
 
-        {/* Reservas */}
-        {tab==="reservas" && (
-          <>
-            <div style={{ display:"flex", gap:20, marginBottom:20 }}>
+        {/* ── TAB RESERVAS ── */}
+        {tab==="reservas" && (<>
+          {/* Selector de evento */}
+          {eventos.length === 0 ? (
+            <div style={{ fontFamily:"Rubik",fontSize:13,color:C.muted,padding:"32px 0",fontStyle:"italic",textAlign:"center" }}>
+              No hay eventos creados aún. Creá uno en la pestaña "Eventos".
+            </div>
+          ) : (<>
+            <div style={{ display:"flex", gap:8, marginBottom:20, flexWrap:"wrap" }}>
+              {eventos.map(ev=>(
+                <button key={ev.id} onClick={()=>{ setTabEvento(ev.id); setFilter("todas"); }}
+                  style={{ background:tabEvento===ev.id?"rgba(204,154,30,.12)":"transparent",
+                    border:`1px solid ${tabEvento===ev.id?C.sol:C.dim}`,
+                    color:tabEvento===ev.id?C.sol:C.muted,
+                    cursor:"pointer", fontFamily:"Rubik", fontSize:10, fontWeight:tabEvento===ev.id?600:400,
+                    letterSpacing:1.5, textTransform:"uppercase", padding:"6px 14px", borderRadius:99 }}>
+                  {ev.nombre}
+                  {!ev.activo && <span style={{ marginLeft:6, fontSize:8, opacity:.5 }}>(inactivo)</span>}
+                </button>
+              ))}
+            </div>
+
+            {/* Stats del evento seleccionado */}
+            {evTabEv && (
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:1, background:C.creamDim, marginBottom:24 }}>
+                {[[evTabConf.length,"Confirmadas",C.success],[evTabPend.length,"Pendientes",C.pending],[evTabLib,"Cupo libre",C.cream],[`$${fmt(evTabRec)}`,"Recaudado",C.sol]].map(([v,l,c],i)=>(
+                  <div key={i} style={{ padding:"14px 12px", background:C.vino }}>
+                    <div style={{ fontFamily:"Rubik", fontSize:typeof v==="string"?14:26, fontWeight:200, color:c, lineHeight:1 }}>{v}</div>
+                    <div style={{ fontFamily:"Rubik", fontSize:9, color:C.muted, textTransform:"uppercase", letterSpacing:1.5, marginTop:4 }}>{l}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Filtros + CSV */}
+            <div style={{ display:"flex", gap:16, marginBottom:16, alignItems:"center" }}>
               {[["todas","Todas"],["pendiente","Pend."],["confirmado","Conf."],["cancelado","Canc."]].map(([v,l])=>(
                 <button key={v} onClick={()=>setFilter(v)} style={{ background:"none", border:"none",
                   cursor:"pointer", fontFamily:"Rubik", fontSize:10, fontWeight:filter===v?600:400,
                   color:filter===v?C.cream:C.muted, letterSpacing:1.5, textTransform:"uppercase",
                   padding:0, borderBottom:`1px solid ${filter===v?C.cream:"transparent"}`, paddingBottom:2 }}>{l}</button>
               ))}
+              <button onClick={()=>{
+                const h=["ID","Evento","Nombre","Email","WhatsApp","Personas","Total","Estado","Fecha"];
+                const rows=evTabReservas.map(r=>[r.id,r.eventoNombre||evTabEv&&evTabEv.nombre,r.nombre,r.email,r.telefono,r.cantidad,r.total,r.status,r.createdAt]);
+                const csv=[h,...rows].map(r=>r.map(v=>`"${v}"`).join(",")).join("\n");
+                const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
+                const url=URL.createObjectURL(blob);
+                Object.assign(document.createElement("a"),{href:url,download:`reservas_${evTabEv&&evTabEv.nombre||"evento"}.csv`}).click();
+                URL.revokeObjectURL(url);
+              }} style={{ marginLeft:"auto", background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:10, fontFamily:"Rubik", letterSpacing:2, textTransform:"uppercase" }}>↓ CSV</button>
             </div>
+
+            {/* Lista reservas */}
             {filt.length===0
-              ? <div style={{ fontFamily:"Rubik", fontSize:13, color:C.muted, padding:"32px 0", fontStyle:"italic" }}>No hay reservas aún.</div>
+              ? <div style={{ fontFamily:"Rubik", fontSize:13, color:C.muted, padding:"32px 0", fontStyle:"italic" }}>No hay reservas{filter!=="todas"?` ${filter}s`:""} para este evento.</div>
               : filt.map(r => {
                 const sc={pendiente:C.pending, confirmado:C.success, cancelado:C.danger};
                 return (
@@ -868,151 +834,197 @@ function App() {
                       </div>
                       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                         <span style={{ fontFamily:"Rubik", fontSize:9, color:sc[r.status], textTransform:"uppercase", letterSpacing:1.5 }}>{r.status}</span>
-                        {r.status!=="confirmado"&&<button onClick={()=>chgSt(r.id,"confirmado")} style={{ width:26,height:26,background:`rgba(46,204,113,.1)`,border:`1px solid ${C.success}`,color:C.success,cursor:"pointer",fontSize:12,borderRadius:2 }}>✓</button>}
-                        {r.status!=="cancelado"&&<button  onClick={()=>chgSt(r.id,"cancelado")}  style={{ width:26,height:26,background:`rgba(231,76,60,.1)`, border:`1px solid ${C.danger}`, color:C.danger, cursor:"pointer",fontSize:12,borderRadius:2 }}>✗</button>}
-                        {r.status==="cancelado"&&<button  onClick={()=>chgSt(r.id,"pendiente")} style={{ width:26,height:26,background:`rgba(243,156,18,.1)`,border:`1px solid ${C.pending}`,color:C.pending,cursor:"pointer",fontSize:12,borderRadius:2 }}>↩</button>}
+                        {r.status!=="confirmado"&&<button onClick={()=>chgSt(tabEvento,r.id,"confirmado")} style={{ width:26,height:26,background:`rgba(46,204,113,.1)`,border:`1px solid ${C.success}`,color:C.success,cursor:"pointer",fontSize:12,borderRadius:2 }}>✓</button>}
+                        {r.status!=="cancelado"&&<button  onClick={()=>chgSt(tabEvento,r.id,"cancelado")}  style={{ width:26,height:26,background:`rgba(231,76,60,.1)`, border:`1px solid ${C.danger}`, color:C.danger, cursor:"pointer",fontSize:12,borderRadius:2 }}>✗</button>}
+                        {r.status==="cancelado"&&<button  onClick={()=>chgSt(tabEvento,r.id,"pendiente")} style={{ width:26,height:26,background:`rgba(243,156,18,.1)`,border:`1px solid ${C.pending}`,color:C.pending,cursor:"pointer",fontSize:12,borderRadius:2 }}>↩</button>}
                       </div>
                     </div>
                     <span style={{ fontFamily:"Rubik", fontSize:13, fontWeight:300, color:C.muted }}>
                       {r.cantidad} persona{r.cantidad>1?"s":""} · <span style={{ color:C.sol }}>${fmt(r.total)}</span>
                     </span>
-                    {/* Comprobante visible para el admin */}
                     {r.comprobante && (
                       <div style={{ marginTop:10 }}>
                         <div style={{ fontFamily:"Rubik",fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:6 }}>Comprobante</div>
-                        <img
-                          src={`data:image/jpeg;base64,${r.comprobante}`}
+                        <img src={`data:image/jpeg;base64,${r.comprobante}`}
                           style={{ maxWidth:"100%", maxHeight:200, objectFit:"contain", borderRadius:6, border:`1px solid ${C.creamDim}`, cursor:"pointer" }}
                           onClick={()=>{ const w=window.open(); w.document.write(`<img src="data:image/jpeg;base64,${r.comprobante}" style="max-width:100%;"/>`); }}
-                          title="Click para ver en tamaño completo"
-                        />
+                          title="Click para ver completo" />
                       </div>
                     )}
                   </div>
                 );
-              })}
-          </>
-        )}
+              })
+            }
+          </>)}
+        </>)}
 
-        {/* Config */}
+        {/* ── TAB EVENTOS ── */}
+        {tab==="eventos" && (<>
+          <div style={{ marginBottom:20 }}>
+            <button onClick={()=>setEvForm({ nombre:"", fecha:"", fechaCorta:"", dia:"", hora:"22hs", lugar:"", barrio:"", precio:15000, cupo:80, activo:true })}
+              style={{ background:"rgba(204,154,30,.1)", border:`1px solid ${C.sol}`, color:C.sol, cursor:"pointer",
+                fontFamily:"Rubik", fontSize:11, fontWeight:600, letterSpacing:2, textTransform:"uppercase",
+                padding:"10px 20px", borderRadius:99 }}>
+              + Crear nuevo evento
+            </button>
+          </div>
+
+          {/* Formulario crear/editar */}
+          {evForm && (
+            <div style={{ background:"rgba(245,239,224,.04)", border:`1px solid ${C.dim}`, borderRadius:12, padding:"20px", marginBottom:24 }}>
+              <div style={{ fontFamily:"Rubik",fontSize:10,fontWeight:600,color:C.sol,textTransform:"uppercase",letterSpacing:2,marginBottom:16 }}>
+                {evForm.id ? "Editar evento" : "Nuevo evento"}
+              </div>
+              {[
+                ["Nombre del evento","text","nombre","La Guitarreada"],
+                ["Fecha completa","text","fecha","Sábado 18 de Abril · 2026"],
+                ["Fecha corta","text","fechaCorta","18.04"],
+                ["Día","text","dia","Sábado"],
+                ["Hora","text","hora","22hs"],
+                ["Lugar","text","lugar","La Casona de Güemes"],
+                ["Barrio / Ciudad","text","barrio","Güemes · Córdoba Capital"],
+              ].map(([label,type,key,ph])=>(
+                <div key={key} style={{ marginBottom:14 }}>
+                  <div style={{ fontFamily:"Rubik",fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:4 }}>{label}</div>
+                  <input type={type} value={evForm[key]||""} onChange={e=>setEvForm(f=>({...f,[key]:e.target.value}))}
+                    placeholder={ph}
+                    style={{ width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${C.dim}`,padding:"8px 0",fontSize:14,color:C.cream,fontFamily:"Rubik",outline:"none" }} />
+                </div>
+              ))}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:14 }}>
+                <div>
+                  <div style={{ fontFamily:"Rubik",fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:4 }}>Precio ($)</div>
+                  <input type="number" value={evForm.precio||""} onChange={e=>setEvForm(f=>({...f,precio:Number(e.target.value)}))}
+                    placeholder="15000"
+                    style={{ width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${C.dim}`,padding:"8px 0",fontSize:16,color:C.sol,fontFamily:"Rubik",outline:"none",fontWeight:300 }} />
+                </div>
+                <div>
+                  <div style={{ fontFamily:"Rubik",fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:4 }}>Cupo máximo</div>
+                  <input type="number" value={evForm.cupo||""} onChange={e=>setEvForm(f=>({...f,cupo:Number(e.target.value)}))}
+                    placeholder="80"
+                    style={{ width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${C.dim}`,padding:"8px 0",fontSize:16,color:C.cream,fontFamily:"Rubik",outline:"none",fontWeight:300 }} />
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:10, marginTop:16 }}>
+                <button onClick={guardarEvento}
+                  style={{ flex:1,background:"rgba(204,154,30,.12)",border:`1px solid ${C.sol}`,color:C.sol,cursor:"pointer",fontFamily:"Rubik",fontSize:12,fontWeight:600,letterSpacing:2,textTransform:"uppercase",padding:"11px",borderRadius:8 }}>
+                  {evOk ? "✓ Guardado" : evForm.id ? "Guardar cambios" : "Crear evento"}
+                </button>
+                <button onClick={()=>setEvForm(null)}
+                  style={{ background:"transparent",border:`1px solid ${C.dim}`,color:C.muted,cursor:"pointer",fontFamily:"Rubik",fontSize:12,letterSpacing:2,textTransform:"uppercase",padding:"11px 20px",borderRadius:8 }}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Lista de eventos */}
+          {eventos.length === 0 ? (
+            <div style={{ fontFamily:"Rubik",fontSize:13,color:C.muted,padding:"32px 0",fontStyle:"italic",textAlign:"center" }}>No hay eventos creados aún.</div>
+          ) : eventos.map(ev => {
+            const evR = reservasMap[ev.id]||[];
+            const evConf = evR.filter(r=>r.status==="confirmado").length;
+            const evPend = evR.filter(r=>r.status==="pendiente").length;
+            const evOcpTotal = evR.filter(r=>r.status!=="cancelado").reduce((s,r)=>s+r.cantidad,0);
+            return (
+              <div key={ev.id} style={{ borderBottom:`1px solid ${C.creamDim}`, padding:"16px 0" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                  <div>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                      <div style={{ fontFamily:"Rubik", fontSize:16, fontWeight:600, color:ev.activo?C.cream:"rgba(245,239,224,.35)" }}>{ev.nombre}</div>
+                      <span style={{ fontFamily:"Rubik",fontSize:8,fontWeight:600,letterSpacing:1.5,textTransform:"uppercase",
+                        color:ev.activo?C.success:C.muted, background:ev.activo?"rgba(46,204,113,.1)":"rgba(245,239,224,.05)",
+                        border:`1px solid ${ev.activo?C.success:C.dim}`, borderRadius:99, padding:"2px 8px" }}>
+                        {ev.activo?"Activo":"Inactivo"}
+                      </span>
+                    </div>
+                    <div style={{ fontFamily:"Rubik",fontSize:12,color:C.muted }}>{ev.fecha} · {ev.hora}</div>
+                    <div style={{ fontFamily:"Rubik",fontSize:11,color:C.muted,marginTop:3 }}>
+                      ${fmt(Number(ev.precio))} · {evOcpTotal}/{ev.cupo} personas · {evConf} conf. · {evPend} pend.
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", gap:8, flexDirection:"column", alignItems:"flex-end" }}>
+                    <button onClick={()=>toggleEvento(ev.id)}
+                      style={{ background:"transparent", border:`1px solid ${ev.activo?C.danger:C.success}`,
+                        color:ev.activo?C.danger:C.success, cursor:"pointer", fontFamily:"Rubik",
+                        fontSize:9, fontWeight:600, letterSpacing:1.5, textTransform:"uppercase",
+                        padding:"5px 12px", borderRadius:99 }}>
+                      {ev.activo?"Desactivar":"Activar"}
+                    </button>
+                    <button onClick={()=>setEvForm({...ev})}
+                      style={{ background:"transparent", border:`1px solid ${C.dim}`, color:C.muted,
+                        cursor:"pointer", fontFamily:"Rubik", fontSize:9, letterSpacing:1.5,
+                        textTransform:"uppercase", padding:"5px 12px", borderRadius:99 }}>
+                      Editar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </>)}
+
+        {/* ── TAB CONFIGURACIÓN ── */}
         {tab==="config" && (
           <div>
-            {/* Evento */}
-            <div style={{ fontFamily:"Rubik",fontSize:10,fontWeight:600,color:C.sol,textTransform:"uppercase",letterSpacing:2,marginBottom:16,marginTop:4 }}>Evento</div>
-            {[
-              ["Nombre del evento","text",cfgF.eventoNombre,v=>setCfgF(f=>({...f,eventoNombre:v})),"La Guitarreada"],
-              ["Fecha completa","text",cfgF.eventoFecha,v=>setCfgF(f=>({...f,eventoFecha:v})),"Sábado 18 de Abril · 2026"],
-              ["Día (para el banner)","text",cfgF.eventoDia,v=>setCfgF(f=>({...f,eventoDia:v})),"Sábado"],
-              ["Fecha corta (para el banner)","text",cfgF.eventoFechaCorta,v=>setCfgF(f=>({...f,eventoFechaCorta:v})),"18.04"],
-              ["Hora","text",cfgF.eventoHora,v=>setCfgF(f=>({...f,eventoHora:v})),"22hs"],
-              ["Lugar","text",cfgF.eventoLugar,v=>setCfgF(f=>({...f,eventoLugar:v})),"La Casona de Güemes"],
-              ["Barrio / Ciudad","text",cfgF.eventoBarrio,v=>setCfgF(f=>({...f,eventoBarrio:v})),"Güemes · Córdoba Capital"],
-            ].map(([label,type,val,setter,ph])=>(
-              <div key={label} style={{ marginBottom:18 }}>
-                <div style={{ fontFamily:"Rubik",fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:6 }}>{label}</div>
-                <input type={type} value={val||""} onChange={e=>setter(e.target.value)} placeholder={ph}
-                  style={{ width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${C.dim}`,
-                    padding:"10px 0",fontSize:14,color:C.cream,fontFamily:"Rubik",outline:"none" }} />
-              </div>
-            ))}
+            <div style={{ fontFamily:"Rubik",fontSize:10,fontWeight:600,color:C.sol,textTransform:"uppercase",letterSpacing:2,marginBottom:16,marginTop:4 }}>Configuración global</div>
 
-            <HR my={20}/>
-
-            {/* Precios */}
-            <div style={{ fontFamily:"Rubik",fontSize:10,fontWeight:600,color:C.sol,textTransform:"uppercase",letterSpacing:2,marginBottom:16 }}>Precios</div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:18 }}>
-              <div>
-                <div style={{ fontFamily:"Rubik",fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:6 }}>Precio base ($)</div>
-                <input type="number" value={cfgF.precio||""} onChange={e=>setCfgF(f=>({...f,precio:Number(e.target.value)}))}
-                  placeholder="15000"
-                  style={{ width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${C.dim}`,
-                    padding:"10px 0",fontSize:18,color:C.sol,fontFamily:"Rubik",outline:"none",fontWeight:300 }} />
-              </div>
-              <div>
-                <div style={{ fontFamily:"Rubik",fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:6 }}>Service charge (%)</div>
-                <input type="number" value={cfgF.serviceCharge||""} onChange={e=>setCfgF(f=>({...f,serviceCharge:Number(e.target.value)}))}
-                  placeholder="12"
-                  style={{ width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${C.dim}`,
-                    padding:"10px 0",fontSize:18,color:C.cream,fontFamily:"Rubik",outline:"none",fontWeight:300 }} />
-              </div>
-            </div>
-            <div style={{ fontFamily:"Rubik",fontSize:11,color:C.muted,marginBottom:4 }}>
-              Con MP: <span style={{color:C.cream}}>${new Intl.NumberFormat("es-AR").format(Math.round((cfgF.precio||0)*(1+(cfgF.serviceCharge||12)/100)))}</span>
-              &nbsp;·&nbsp; Transferencia: <span style={{color:C.sol}}>${new Intl.NumberFormat("es-AR").format(cfgF.precio||0)}</span>
-            </div>
-            <div style={{ fontFamily:"Rubik",fontSize:11,color:C.muted,marginBottom:18 }}>Cupo: <span style={{color:C.cream}}>{ocp} ocupados · {lib} libres</span></div>
+            <HR my={10}/>
+            <div style={{ fontFamily:"Rubik",fontSize:10,fontWeight:600,color:C.sol,textTransform:"uppercase",letterSpacing:2,marginBottom:16 }}>Service charge MercadoPago</div>
             <div style={{ marginBottom:18 }}>
-              <div style={{ fontFamily:"Rubik",fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:6 }}>Cupo máximo</div>
-              <input type="number" value={cfgF.cupo||""} onChange={e=>setCfgF(f=>({...f,cupo:Number(e.target.value)}))}
-                style={{ width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${C.dim}`,
-                  padding:"10px 0",fontSize:14,color:C.cream,fontFamily:"Rubik",outline:"none" }} />
+              <div style={{ fontFamily:"Rubik",fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:6 }}>Porcentaje (%)</div>
+              <input type="number" value={cfgF.serviceCharge||""} onChange={e=>setCfgF(f=>({...f,serviceCharge:Number(e.target.value)}))}
+                placeholder="12"
+                style={{ width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${C.dim}`,padding:"10px 0",fontSize:18,color:C.cream,fontFamily:"Rubik",outline:"none",fontWeight:300 }} />
             </div>
 
             <HR my={20}/>
-
-            {/* Banner */}
             <div style={{ fontFamily:"Rubik",fontSize:10,fontWeight:600,color:C.sol,textTransform:"uppercase",letterSpacing:2,marginBottom:16 }}>Banner de portada</div>
             <label style={{ display:"block", cursor:"pointer", marginBottom:18 }}>
               <input type="file" accept="image/*" style={{ display:"none" }}
                 onChange={e => {
-                  const file = e.target.files?.[0];
+                  const file = e.target.files&&e.target.files[0];
                   if (!file) return;
                   const reader = new FileReader();
-                  reader.onload = ev => {
-                    const b64 = ev.target.result.split(",")[1];
-                    setCfgF(f => ({...f, heroBanner: b64}));
-                  };
+                  reader.onload = ev => setCfgF(f => ({...f, heroBanner: ev.target.result.split(",")[1]}));
                   reader.readAsDataURL(file);
                 }} />
               <div style={{ border:`1.5px dashed ${cfgF.heroBanner?C.sol:C.dim}`, borderRadius:8, padding:"20px", textAlign:"center", background:cfgF.heroBanner?"rgba(204,154,30,0.05)":"transparent" }}>
                 {cfgF.heroBanner
-                  ? <div>
-                      <img src={`data:image/jpeg;base64,${cfgF.heroBanner}`} style={{ maxWidth:"100%", maxHeight:120, objectFit:"cover", borderRadius:4, marginBottom:8 }} />
-                      <div style={{ fontFamily:"Rubik",fontSize:12,color:C.sol }}>✓ Banner personalizado · tocá para cambiar</div>
-                    </div>
-                  : <div>
-                      <div style={{ fontSize:24, marginBottom:6 }}>🖼</div>
-                      <div style={{ fontFamily:"Rubik",fontSize:13,color:C.muted }}>Subir foto de portada</div>
-                      <div style={{ fontFamily:"Rubik",fontSize:11,color:"rgba(245,239,224,0.25)",marginTop:4 }}>JPG o PNG · se ajusta automáticamente</div>
-                    </div>
+                  ? <div><img src={`data:image/jpeg;base64,${cfgF.heroBanner}`} style={{ maxWidth:"100%", maxHeight:120, objectFit:"cover", borderRadius:4, marginBottom:8 }} /><div style={{ fontFamily:"Rubik",fontSize:12,color:C.sol }}>✓ Banner personalizado · tocá para cambiar</div></div>
+                  : <div><div style={{ fontSize:24, marginBottom:6 }}>🖼</div><div style={{ fontFamily:"Rubik",fontSize:13,color:C.muted }}>Subir foto de portada</div></div>
                 }
               </div>
             </label>
             {cfgF.heroBanner && (
               <button onClick={()=>setCfgF(f=>({...f,heroBanner:""}))}
-                style={{ background:"none",border:`1px solid ${C.danger}`,color:C.danger,cursor:"pointer",
-                  fontFamily:"Rubik",fontSize:11,letterSpacing:2,textTransform:"uppercase",
-                  padding:"8px 16px",borderRadius:99,marginBottom:18,width:"100%" }}>
+                style={{ background:"none",border:`1px solid ${C.danger}`,color:C.danger,cursor:"pointer",fontFamily:"Rubik",fontSize:11,letterSpacing:2,textTransform:"uppercase",padding:"8px 16px",borderRadius:99,marginBottom:18,width:"100%" }}>
                 Restaurar foto original
               </button>
             )}
 
             <HR my={20}/>
-
-            {/* Acceso admin */}
             <div style={{ fontFamily:"Rubik",fontSize:10,fontWeight:600,color:C.sol,textTransform:"uppercase",letterSpacing:2,marginBottom:16 }}>Acceso admin</div>
-            {[
-              ["Usuario","text",cfgF.adminUser,v=>setCfgF(f=>({...f,adminUser:v}))],
-              ["Contraseña","password",cfgF.adminPass,v=>setCfgF(f=>({...f,adminPass:v}))],
-            ].map(([label,type,val,setter])=>(
-              <div key={label} style={{ marginBottom:18 }}>
+            {[["Usuario","text","adminUser"],["Contraseña","password","adminPass"]].map(([label,type,key])=>(
+              <div key={key} style={{ marginBottom:18 }}>
                 <div style={{ fontFamily:"Rubik",fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:6 }}>{label}</div>
-                <input type={type} value={val||""} onChange={e=>setter(e.target.value)}
-                  style={{ width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${C.dim}`,
-                    padding:"10px 0",fontSize:14,color:C.cream,fontFamily:"Rubik",outline:"none" }} />
+                <input type={type} value={cfgF[key]||""} onChange={e=>setCfgF(f=>({...f,[key]:e.target.value}))}
+                  style={{ width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${C.dim}`,padding:"10px 0",fontSize:14,color:C.cream,fontFamily:"Rubik",outline:"none" }} />
               </div>
             ))}
 
             <HR my={20}/>
-            <Btn onClick={saveCfg} style={cfgOk?{color:C.success,borderColor:C.success}:{}}>{cfgOk?"Guardado ✓":"Guardar cambios"}</Btn>
+            <Btn onClick={saveCfg} style={cfgOk?{color:C.success,borderColor:C.success}:{}}>{cfgOk?"Guardado ✓":"Guardar configuración"}</Btn>
           </div>
         )}
+
       </div>
     </div>
-  );
+    );
+  }
+
   return null;
 }
-
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);
