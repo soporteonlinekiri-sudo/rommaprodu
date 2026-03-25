@@ -202,7 +202,7 @@ function App() {
   const [view,     setView]     = useState("landing");
   const [reservas, setReservas] = useState([]);
   const [cfg,      setCfg]      = useState(DEF);
-  const [form,     setForm]     = useState({ nombre:"", email:"", tel:"", qty:1 });
+  const [form,     setForm]     = useState({ nombre:"", email:"", tel:"", cuit:"", qty:1 });
   const [pending,  setPending]  = useState(null);
   const [checked,  setChecked]  = useState(false);
   const [lf,       setLf]       = useState({ u:"", p:"" });
@@ -210,6 +210,7 @@ function App() {
   const [cfgF,     setCfgF]     = useState(DEF);
   const [cfgOk,    setCfgOk]    = useState(false);
   const [formErr,  setFormErr]  = useState("");
+  const [minimized, setMinimized] = useState(false);
   const [mpOpen,   setMpOpen]   = useState(false);
   const [mpLoading,setMpLoading]= useState(false);
   const [mpError,  setMpError]  = useState("");
@@ -225,7 +226,6 @@ function App() {
 
   const [payMethod,   setPayMethod]   = useState(null); // null | "mp" | "transfer"
   const [comprobante, setComprobante] = useState(null); // base64
-  const [comprobanteType, setComprobanteType] = useState("image/jpeg");
   const [aiStatus,    setAiStatus]    = useState("idle"); // idle | loading | ok | pending | error
   const [aiMsg,       setAiMsg]       = useState("");
   const [copied,      setCopied]      = useState("");
@@ -289,7 +289,7 @@ function App() {
 
   const go     = v => { setView(v); window.scrollTo(0,0); };
   const goHome = () => {
-    setForm({nombre:"",email:"",tel:"",qty:1});
+    setForm({nombre:"",email:"",tel:"",cuit:"",qty:1});
     setLf({u:"",p:""});
     setLerr(false);
     setPayMethod(null);
@@ -314,79 +314,99 @@ function App() {
     if (!form.email.trim()) return setFormErr("El email es obligatorio.");
     if (!/\S+@\S+\.\S+/.test(form.email)) return setFormErr("El email no es válido.");
     if (!form.tel.trim()) return setFormErr("El WhatsApp es obligatorio.");
+    if (!form.cuit.trim()) return setFormErr("El CUIT/CUIL es obligatorio.");
+    if (!/^[0-9\-]+$/.test(form.cuit.trim())) return setFormErr("El CUIT/CUIL solo puede contener números y guiones.");
     if (form.qty > lib) return setFormErr("No hay suficiente cupo disponible.");
     setFormErr("");
-    setPayMethod(null);
-    go("choose-payment");
+    setPending({ id:genId(), nombre:form.nombre.trim(), email:form.email.trim(),
+      telefono:form.tel.trim(), cantidad:form.qty,
+      total: form.qty * precio,
+      status:"pendiente", createdAt:new Date().toLocaleString("es-AR"), metodoPago:"transferencia" });
+    setComprobante(null);
+    setAiStatus("idle");
+    go("payment-transfer");
   };
 
-  const analyzeComprobante = async (base64img) => {
+  const submitComprobante = async (base64img) => {
     setAiStatus("loading");
     setAiMsg("");
     try {
       const pendingData = {
-        id: genId(),
-        nombre: form.nombre.trim(),
-        email: form.email.trim(),
-        telefono: form.tel.trim(),
-        cantidad: form.qty,
-        total: totalTransfer,
+        ...pending,
+        id: pending?.id || genId(),
         status: "pendiente",
-        createdAt: new Date().toLocaleString("es-AR"),
         metodoPago: "transferencia",
       };
 
-      const res = await fetch("/api/verify-comprobante", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imagen: base64img, montoEsperado: totalTransfer, mediaType: comprobanteType })
-      });
-
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || "Error al verificar");
-
-      if (!result.esComprobante) {
-        setAiStatus("error");
-        setAiMsg("La imagen no parece ser un comprobante de transferencia.");
-        return;
-      }
-
-      const montoOk = result.monto && Math.abs(result.monto - totalTransfer) < 10;
-      const confianzaAlta = result.confianza >= 90 && montoOk;
-
-      const status = confianzaAlta ? "confirmado" : "pendiente";
-      pendingData.status = status;
-      pendingData.aiConfianza = result.confianza;
-
-      setPending(pendingData);
+      // Guardar reserva como pendiente
       const u = [...reservas, pendingData];
       setReservas(u);
       await saveR(u);
+      setPending(pendingData);
 
-      if (confianzaAlta) {
-        // Auto-confirmar con alta confianza: enviar email
-        try {
-          await emailjs.send("service_w7isuyl", "template_fzm4grk", {
-            to_email:   pendingData.email,
-            nombre:     pendingData.nombre,
-            reserva_id: pendingData.id,
-            cantidad:   pendingData.cantidad + " entrada" + (pendingData.cantidad > 1 ? "s" : ""),
-            total:      fmt(pendingData.total),
-          });
-        } catch(e) { console.warn("Email:", e); }
-        setAiStatus("ok");
-      } else {
-        // Pendiente: NO enviar email, esperar aprobación manual del admin
+      // Enviar comprobante por email al admin para revisión
+      try {
+        await emailjs.send("service_w7isuyl", "template_fzm4grk", {
+          to_email:   "rommaproductoraintegral@gmail.com",
+          nombre:     `COMPROBANTE - ${pendingData.nombre}`,
+          reserva_id: pendingData.id,
+          cantidad:   `${pendingData.cantidad} entrada${pendingData.cantidad>1?"s":""} · $${new Intl.NumberFormat("es-AR").format(pendingData.total)}`,
+          total:      `Revisar comprobante adjunto. WhatsApp: ${pendingData.telefono}`,
+        });
+      } catch(e) { console.warn("Email admin:", e); }
+
+      // Intentar verificar con IA si está disponible
+      try {
+        const res = await fetch("/api/verify-comprobante", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imagen: base64img, montoEsperado: pendingData.total })
+        });
+
+        if (res.ok) {
+          const result = await res.json();
+          const confianzaAlta = result.esComprobante && result.confianza >= 90 &&
+            result.monto && Math.abs(result.monto - pendingData.total) < 10;
+
+          if (confianzaAlta) {
+            const confirmado = { ...pendingData, status: "confirmado" };
+            const u2 = reservas.map(r => r.id === confirmado.id ? confirmado : r).concat(
+              reservas.find(r => r.id === confirmado.id) ? [] : [confirmado]
+            );
+            setReservas(u2);
+            await saveR(u2);
+            setPending(confirmado);
+            // Email confirmación al cliente
+            await emailjs.send("service_w7isuyl", "template_fzm4grk", {
+              to_email:   pendingData.email,
+              nombre:     pendingData.nombre,
+              reserva_id: pendingData.id,
+              cantidad:   `${pendingData.cantidad} entrada${pendingData.cantidad>1?"s":""}`,
+              total:      new Intl.NumberFormat("es-AR").format(pendingData.total),
+            }).catch(()=>{});
+            setAiStatus("ok");
+          } else {
+            setAiStatus("pending");
+            setAiMsg("Tu comprobante fue recibido y está en revisión. Te confirmamos pronto.");
+          }
+        } else {
+          // IA no disponible — queda pendiente para revisión manual
+          setAiStatus("pending");
+          setAiMsg("Comprobante recibido. Quedará pendiente hasta que confirmemos el pago.");
+        }
+      } catch {
+        // Sin IA — igual queda guardado para revisión manual
         setAiStatus("pending");
-        setAiMsg(result.motivo || "Tu comprobante quedó pendiente de revisión. Te avisamos cuando se confirme.");
+        setAiMsg("Comprobante recibido. Quedará pendiente hasta que confirmemos el pago.");
       }
 
     } catch(e) {
       setAiStatus("error");
-      setAiMsg("Error al analizar el comprobante. Intentá de nuevo.");
+      setAiMsg("Error al guardar la reserva. Intentá de nuevo.");
     }
   };
 
+  
   const confirmR = async () => {
     const u=[...reservas,pending];
     setReservas(u);
@@ -409,10 +429,10 @@ function App() {
     const u = reservas.map(r => r.id === id ? {...r, status} : r);
     setReservas(u);
     await saveR(u);
-    // Si el admin confirma una reserva por transferencia → enviar email ahora
+    // Al confirmar → enviar email de confirmación
     if (status === "confirmado") {
       const r = reservas.find(x => x.id === id);
-      if (r && r.metodoPago === "transferencia") {
+      if (r) {
         try {
           await emailjs.send("service_w7isuyl", "template_fzm4grk", {
             to_email:   r.email,
@@ -421,7 +441,7 @@ function App() {
             cantidad:   r.cantidad + " entrada" + (r.cantidad > 1 ? "s" : ""),
             total:      fmt(r.total),
           });
-        } catch(e) { console.warn("Email:", e); }
+        } catch(e) { console.warn("Email no enviado:", e); }
       }
     }
   };
@@ -499,8 +519,30 @@ function App() {
           <Btn ghost onClick={()=>go("admin-login")}>
             Administrar reservas
           </Btn>
+
+          {/* Avisos importantes */}
+          <div style={{ marginTop:24, display:"flex", flexDirection:"column", gap:10 }}>
+            <div style={{ padding:"12px 16px", background:"rgba(29,29,27,0.06)", borderRadius:8, borderLeft:"3px solid rgba(29,29,27,0.2)" }}>
+              <div style={{ fontFamily:"Rubik", fontSize:12, fontWeight:600, color:"rgba(29,29,27,0.7)", marginBottom:3 }}>📍 Sobre los lugares</div>
+              <div style={{ fontFamily:"Rubik", fontSize:12, fontWeight:300, color:"rgba(29,29,27,0.55)", lineHeight:1.6 }}>
+                Las reservas no garantizan mesa ni lugar privilegiado. El 100% de los lugares son por orden de llegada — ¡llegá temprano para los mejores spots!
+              </div>
+            </div>
+            <div style={{ padding:"12px 16px", background:"rgba(29,29,27,0.06)", borderRadius:8, borderLeft:"3px solid rgba(29,29,27,0.2)" }}>
+              <div style={{ fontFamily:"Rubik", fontSize:12, fontWeight:600, color:"rgba(29,29,27,0.7)", marginBottom:3 }}>🎂 Cumpleaños y festejos</div>
+              <div style={{ fontFamily:"Rubik", fontSize:12, fontWeight:300, color:"rgba(29,29,27,0.55)", lineHeight:1.6 }}>
+                Para reservas de cumpleaños u otros festejos especiales, contactanos al <a href="https://wa.me/543735476444" style={{color:"#25D366", fontWeight:500, textDecoration:"none"}}>+54 373 547 6444</a> para acceder a regalos, beneficios y descuentos.
+              </div>
+            </div>
+            <div style={{ padding:"12px 16px", background:"rgba(29,29,27,0.06)", borderRadius:8, borderLeft:"3px solid rgba(29,29,27,0.2)" }}>
+              <div style={{ fontFamily:"Rubik", fontSize:12, fontWeight:600, color:"rgba(29,29,27,0.7)", marginBottom:3 }}>📲 Modificaciones y comprobantes</div>
+              <div style={{ fontFamily:"Rubik", fontSize:12, fontWeight:300, color:"rgba(29,29,27,0.55)", lineHeight:1.6 }}>
+                Para modificar tu reserva o enviar tu comprobante de pago, escribinos al <a href="https://wa.me/543735476444" style={{color:"#25D366", fontWeight:500, textDecoration:"none"}}>+54 373 547 6444</a>.
+              </div>
+            </div>
+          </div>
           <p style={{ fontFamily:"Rubik", fontSize:11, fontWeight:300, color:"rgba(29,29,27,0.3)", textAlign:"center", marginTop:16 }}>
-            Derecho de espectáculo · $15.000 por persona
+            Derecho de ingreso · ${new Intl.NumberFormat("es-AR").format(precio)} por persona · Lugares por orden de llegada
           </p>
         </div>
       </div>
@@ -509,10 +551,49 @@ function App() {
 
   /* ════ FORM ════ */
   if (view==="form") return (
-    <div style={{ ...base, background:"#0d0d0d", padding:"40px 28px 64px" }}>
+    <div style={{ ...base, background:"#0d0d0d", padding:"40px 28px 64px", position:"relative" }}>
       <style>{GF}</style>
-      <div style={inner}>
-        <Back onClick={goHome} />
+
+      {/* Barra minimizada — flota en la esquina */}
+      {minimized && (
+        <div onClick={()=>setMinimized(false)}
+          style={{ position:"fixed", bottom:24, right:24, zIndex:200,
+            background:"#1a1a1a", border:`1px solid ${C.sol}`,
+            borderRadius:12, padding:"14px 20px",
+            display:"flex", alignItems:"center", gap:16,
+            boxShadow:"0 8px 32px rgba(0,0,0,0.5)", cursor:"pointer" }}>
+          <div>
+            <div style={{ fontFamily:"Rubik", fontSize:13, fontWeight:600, color:C.cream }}>Cotización guardada</div>
+            <div style={{ fontFamily:"Rubik", fontSize:11, color:C.muted }}>
+              {form.qty} entrada{form.qty>1?"s":""} · ${new Intl.NumberFormat("es-AR").format(form.qty * precio)}
+            </div>
+          </div>
+          <span style={{ fontSize:18, color:C.sol }}>↑</span>
+        </div>
+      )}
+
+      {/* Formulario — oculto si está minimizado */}
+      {!minimized && <div style={inner}>
+
+        {/* Header con botones de control */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:32 }}>
+          <Back onClick={goHome} />
+          <div style={{ display:"flex", gap:8 }}>
+            <button onClick={()=>setMinimized(true)} title="Minimizar"
+              style={{ background:"rgba(245,239,224,0.06)", border:`1px solid ${C.dim}`,
+                color:C.muted, cursor:"pointer", width:32, height:32,
+                borderRadius:6, fontSize:18, lineHeight:1, fontFamily:"Rubik" }}>
+              −
+            </button>
+            <button onClick={()=>{ setMinimized(false); goHome(); }} title="Cerrar cotización"
+              style={{ background:"rgba(231,76,60,0.08)", border:`1px solid rgba(231,76,60,0.3)`,
+                color:C.danger, cursor:"pointer", width:32, height:32,
+                borderRadius:6, fontSize:14, lineHeight:1, fontFamily:"Rubik" }}>
+              ✕
+            </button>
+          </div>
+        </div>
+
         <div style={{ marginBottom:32 }}>
           <div style={{ fontFamily:"Rubik", fontSize:22, fontWeight:700, color:C.cream, letterSpacing:0.5, marginBottom:6 }}>La Guitarreada</div>
           <div style={{ fontFamily:"Rubik", fontSize:12, fontWeight:400, color:C.muted, letterSpacing:3, textTransform:"uppercase" }}>Sábado 18.04 · 22hs</div>
@@ -530,114 +611,54 @@ function App() {
             <span style={{ fontFamily:"Rubik", fontSize:36, fontWeight:200, color:C.cream, minWidth:36, textAlign:"center" }}>{form.qty}</span>
             <button onClick={()=>setForm(f=>({...f,qty:Math.min(lib,f.qty+1)}))}
               style={{ width:36, height:36, background:"transparent", border:`1px solid ${C.dim}`, color:C.cream, fontSize:20, cursor:"pointer", fontWeight:200, borderRadius:4 }}>+</button>
-            <span style={{ fontFamily:"Rubik", fontSize:13, color:C.muted }}>{form.qty} × $15.000</span>
+            <span style={{ fontFamily:"Rubik", fontSize:13, color:C.muted }}>{form.qty} × ${new Intl.NumberFormat("es-AR").format(precio)}</span>
           </div>
         </div>
 
         <HR />
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:32 }}>
           <span style={{ fontFamily:"Rubik", fontSize:11, color:C.muted, textTransform:"uppercase", letterSpacing:1.5 }}>Total</span>
-          <span style={{ fontFamily:"Rubik", fontSize:36, fontWeight:200, color:C.sol }}>${fmt(form.qty*PRICE)}</span>
-        </div>
-        {formErr && <div style={{ fontFamily:"Rubik", fontSize:13, color:C.danger, marginBottom:14, padding:"10px 14px", background:"rgba(231,76,60,0.1)", borderLeft:`3px solid ${C.danger}` }}>{formErr}</div>}
-        <Btn onClick={submit}>Continuar →</Btn>
-      </div>
-    </div>
-  );
-
-  /* ════ CHOOSE PAYMENT ════ */
-  if (view==="choose-payment") return (
+          <span style={{ fontFamily:"Rubik", fontSize:36, fontWeight:200, color:C.sol }}>${new Intl.NumberFormat("es-AR").format(form.qty*precio)}</span>
+        <//* ════ PAYMENT TRANSFER ════ */
+  if (view==="choose-payment" || view==="payment-transfer") return (
     <div style={{ ...base, background:"#0d0d0d", padding:"40px 28px 64px" }}>
       <style>{GF}</style>
       <div style={inner}>
         <Back onClick={()=>go("form")} />
-        <div style={{ marginBottom:32 }}>
-          <div style={{ fontFamily:"Rubik", fontSize:22, fontWeight:700, color:C.cream, marginBottom:4 }}>La Guitarreada</div>
-          <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, letterSpacing:2, textTransform:"uppercase" }}>Sábado 18.04 · 22hs</div>
-        </div>
 
-        <div style={{ fontFamily:"Rubik", fontSize:10, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:20 }}>Elegí cómo pagar</div>
-
-        {/* Transfer option */}
-        <div onClick={()=>{
-            setPayMethod("transfer");
-            setPending({ id:genId(), nombre:form.nombre.trim(), email:form.email.trim(),
-              telefono:form.tel.trim(), cantidad:form.qty, total:totalTransfer,
-              status:"pendiente", createdAt:new Date().toLocaleString("es-AR"), metodoPago:"transferencia" });
-            go("payment-transfer");
-          }}
-          style={{ border:`1px solid ${C.dim}`, borderRadius:8, padding:"20px", marginBottom:12, cursor:"pointer",
-            background:"rgba(245,239,224,0.03)", transition:"all .2s" }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
-            <div>
-              <div style={{ fontFamily:"Rubik", fontSize:16, fontWeight:600, color:C.cream }}>Transferencia bancaria</div>
-              <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, marginTop:3 }}>Sin service charge</div>
-            </div>
-            <div style={{ textAlign:"right" }}>
-              <div style={{ fontFamily:"Rubik", fontSize:24, fontWeight:200, color:C.sol }}>${fmt(totalTransfer)}</div>
-            </div>
-          </div>
-          <div style={{ fontFamily:"Rubik", fontSize:11, color:"rgba(46,204,113,0.7)", marginTop:4 }}>✓ Ahorrás ${fmt(totalMP - totalTransfer)}</div>
-        </div>
-
-        {/* MP option */}
-        <div onClick={()=>{
-            setPayMethod("mp");
-            setPending({ id:genId(), nombre:form.nombre.trim(), email:form.email.trim(),
-              telefono:form.tel.trim(), cantidad:form.qty, total:totalMP,
-              status:"pendiente", createdAt:new Date().toLocaleString("es-AR"), metodoPago:"mercadopago" });
-            go("payment");
-          }}
-          style={{ border:`1px solid ${C.dim}`, borderRadius:8, padding:"20px", marginBottom:24, cursor:"pointer",
-            background:"rgba(245,239,224,0.03)", transition:"all .2s" }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
-            <div>
-              <div style={{ fontFamily:"Rubik", fontSize:16, fontWeight:600, color:C.cream }}>MercadoPago</div>
-              <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, marginTop:3 }}>Incluye 12% service charge</div>
-            </div>
-            <div style={{ textAlign:"right" }}>
-              <div style={{ fontFamily:"Rubik", fontSize:24, fontWeight:200, color:C.cream }}>${fmt(totalMP)}</div>
-              <div style={{ fontFamily:"Rubik", fontSize:11, color:C.muted, textDecoration:"line-through" }}>${fmt(totalTransfer)}</div>
-            </div>
-          </div>
-          <div style={{ fontFamily:"Rubik", fontSize:11, color:"rgba(0,158,227,0.7)", marginTop:4 }}>→ Pago instantáneo</div>
-        </div>
-
-        <div style={{ fontFamily:"Rubik", fontSize:11, fontWeight:300, color:C.muted, textAlign:"center", lineHeight:1.7 }}>
-          {form.qty} entrada{form.qty>1?"s":""} · {form.nombre.trim()}
-        </div>
-      </div>
-    </div>
-  );
-
-  /* ════ PAYMENT TRANSFER ════ */
-  if (view==="payment-transfer") return (
-    <div style={{ ...base, background:"#0d0d0d", padding:"40px 28px 64px" }}>
-      <style>{GF}</style>
-      <div style={inner}>
-        <Back onClick={()=>go("choose-payment")} />
-
+        {/* Resumen */}
         <div style={{ marginBottom:28 }}>
+          <div style={{ fontFamily:"Rubik", fontSize:22, fontWeight:700, color:C.cream, marginBottom:4 }}>La Guitarreada</div>
+          <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, letterSpacing:2, textTransform:"uppercase", marginBottom:20 }}>Sábado 18.04 · 22hs</div>
           <div style={{ fontFamily:"Rubik", fontSize:10, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:6 }}>Total a transferir</div>
-          <div style={{ fontFamily:"Rubik", fontSize:52, fontWeight:200, color:C.sol, lineHeight:1 }}>${fmt(totalTransfer)}</div>
-          <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, marginTop:4 }}>{form.qty} entrada{form.qty>1?"s":""} · sin service charge</div>
+          <div style={{ fontFamily:"Rubik", fontSize:48, fontWeight:200, color:C.sol, lineHeight:1 }}>${new Intl.NumberFormat("es-AR").format(pending?.total || 0)}</div>
+          <div style={{ fontFamily:"Rubik", fontSize:13, color:C.muted, marginTop:6 }}>
+            {pending?.cantidad} entrada{pending?.cantidad>1?"s":""} · {pending?.nombre}
+          </div>
+        </div>
+
+        {/* Aviso orden de llegada */}
+        <div style={{ padding:"14px 16px", background:"rgba(204,154,30,0.08)", border:`1px solid rgba(204,154,30,0.25)`, borderRadius:8, marginBottom:24 }}>
+          <div style={{ fontFamily:"Rubik", fontSize:12, fontWeight:600, color:C.sol, marginBottom:4, textTransform:"uppercase", letterSpacing:1 }}>⚠ Importante</div>
+          <div style={{ fontFamily:"Rubik", fontSize:13, fontWeight:300, color:"rgba(245,239,224,0.75)", lineHeight:1.6 }}>
+            Esto es una peña. Al reservar estás asegurando tu <strong style={{color:C.cream}}>derecho de ingreso</strong>, pero todos los lugares son por{" "}
+            <strong style={{color:C.sol, fontSize:14}}>ORDEN DE LLEGADA</strong>. No se guardan mesas ni lugares fijos.
+          </div>
         </div>
 
         <HR />
 
-        {/* Bank data */}
-        <div style={{ marginBottom:28 }}>
+        {/* Datos bancarios */}
+        <div style={{ marginBottom:24 }}>
           <div style={{ fontFamily:"Rubik", fontSize:10, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:16 }}>Datos de transferencia</div>
 
-          {/* Titular */}
-          <div style={{ marginBottom:16, padding:"14px 0", borderBottom:`1px solid ${C.creamDim}` }}>
+          <div style={{ padding:"14px 0", borderBottom:`1px solid ${C.creamDim}` }}>
             <div style={{ fontFamily:"Rubik", fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1.5, marginBottom:4 }}>Titular</div>
             <div style={{ fontFamily:"Rubik", fontSize:16, fontWeight:500, color:C.cream }}>{BANK.titular}</div>
             <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted }}>{BANK.banco}</div>
           </div>
 
-          {/* Alias */}
-          <div style={{ marginBottom:12, padding:"14px 0", borderBottom:`1px solid ${C.creamDim}` }}>
+          <div style={{ padding:"14px 0", borderBottom:`1px solid ${C.creamDim}` }}>
             <div style={{ fontFamily:"Rubik", fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1.5, marginBottom:6 }}>Alias</div>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <div style={{ fontFamily:"Rubik", fontSize:20, fontWeight:600, color:C.cream, letterSpacing:1 }}>{BANK.alias}</div>
@@ -652,17 +673,16 @@ function App() {
             </div>
           </div>
 
-          {/* CVU */}
           <div style={{ padding:"14px 0" }}>
             <div style={{ fontFamily:"Rubik", fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:1.5, marginBottom:6 }}>CVU</div>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div style={{ fontFamily:"Rubik", fontSize:13, fontWeight:400, color:C.cream, letterSpacing:0.5, fontVariantNumeric:"tabular-nums" }}>{BANK.cvu}</div>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+              <div style={{ fontFamily:"Rubik", fontSize:12, fontWeight:400, color:C.cream, letterSpacing:0.5 }}>{BANK.cvu}</div>
               <button onClick={()=>copyText(BANK.cvu, "cvu")}
                 style={{ background:copied==="cvu"?"rgba(46,204,113,0.15)":"rgba(245,239,224,0.06)",
                   border:`1px solid ${copied==="cvu"?C.success:C.dim}`,
                   color:copied==="cvu"?C.success:C.cream, cursor:"pointer",
                   fontFamily:"Rubik", fontSize:11, fontWeight:600, letterSpacing:1.5,
-                  padding:"8px 16px", borderRadius:99, transition:"all .2s", flexShrink:0, marginLeft:8 }}>
+                  padding:"8px 16px", borderRadius:99, transition:"all .2s", flexShrink:0 }}>
                 {copied==="cvu" ? "✓ Copiado" : "Copiar"}
               </button>
             </div>
@@ -671,13 +691,11 @@ function App() {
 
         <HR />
 
-        {/* Comprobante upload */}
-        <div style={{ marginBottom:24 }}>
-          <div style={{ fontFamily:"Rubik", fontSize:10, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:12 }}>
-            Subí tu comprobante
-          </div>
-          <div style={{ fontFamily:"Rubik", fontSize:13, fontWeight:300, color:C.muted, marginBottom:16, lineHeight:1.6 }}>
-            Una vez realizada la transferencia, subí el comprobante para verificar tu pago automáticamente.
+        {/* Subir comprobante */}
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontFamily:"Rubik", fontSize:10, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:8 }}>Comprobante de pago</div>
+          <div style={{ fontFamily:"Rubik", fontSize:13, fontWeight:300, color:C.muted, marginBottom:14, lineHeight:1.6 }}>
+            Subí la foto o captura de tu transferencia para confirmar la reserva.
           </div>
 
           <label style={{ display:"block", cursor:"pointer" }}>
@@ -687,25 +705,21 @@ function App() {
                 if (!file) return;
                 const reader = new FileReader();
                 reader.onload = ev => {
-                  const dataUrl = ev.target.result;
-                  const base64 = dataUrl.split(",")[1];
-                  const mtype = dataUrl.split(";")[0].split(":")[1] || "image/jpeg";
-                  setComprobante(base64);
-                  setComprobanteType(mtype);
+                  setComprobante(ev.target.result.split(",")[1]);
                   setAiStatus("idle");
+                  setAiMsg("");
                 };
                 reader.readAsDataURL(file);
               }} />
             <div style={{
               border:`1.5px dashed ${comprobante?C.sol:C.dim}`,
-              borderRadius:8, padding:"24px",
-              textAlign:"center", transition:"all .2s",
+              borderRadius:8, padding:"20px", textAlign:"center",
               background:comprobante?"rgba(204,154,30,0.05)":"transparent"
             }}>
               {comprobante ? (
                 <div>
                   <img src={`data:image/jpeg;base64,${comprobante}`}
-                    style={{ maxWidth:"100%", maxHeight:160, objectFit:"contain", borderRadius:4, marginBottom:8 }} />
+                    style={{ maxWidth:"100%", maxHeight:150, objectFit:"contain", borderRadius:4, marginBottom:8 }} />
                   <div style={{ fontFamily:"Rubik", fontSize:12, color:C.sol }}>✓ Comprobante cargado · tocá para cambiar</div>
                 </div>
               ) : (
@@ -719,26 +733,25 @@ function App() {
           </label>
         </div>
 
-        {/* AI status */}
+        {/* Estado AI */}
         {aiStatus==="loading" && (
-          <div style={{ padding:"14px 16px", background:"rgba(0,158,227,0.08)", border:`1px solid rgba(0,158,227,0.2)`, borderRadius:8, marginBottom:12, textAlign:"center" }}>
-            <div style={{ fontFamily:"Rubik", fontSize:13, color:"#009EE3" }}>🔍 Verificando comprobante con IA...</div>
+          <div style={{ padding:"12px 14px", background:"rgba(0,158,227,0.08)", border:`1px solid rgba(0,158,227,0.2)`, borderRadius:8, marginBottom:12 }}>
+            <div style={{ fontFamily:"Rubik", fontSize:13, color:"#009EE3", textAlign:"center" }}>🔍 Verificando comprobante...</div>
           </div>
         )}
         {aiStatus==="ok" && (
-          <div style={{ padding:"14px 16px", background:"rgba(46,204,113,0.1)", border:`1px solid ${C.success}`, borderRadius:8, marginBottom:12 }}>
-            <div style={{ fontFamily:"Rubik", fontSize:13, color:C.success, fontWeight:600 }}>✓ Pago verificado — Reserva confirmada</div>
-            <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, marginTop:4 }}>Te enviamos la confirmación por email.</div>
+          <div style={{ padding:"12px 14px", background:"rgba(46,204,113,0.1)", border:`1px solid ${C.success}`, borderRadius:8, marginBottom:12 }}>
+            <div style={{ fontFamily:"Rubik", fontSize:13, color:C.success, fontWeight:600 }}>✓ Comprobante verificado — Reserva confirmada</div>
           </div>
         )}
         {aiStatus==="pending" && (
-          <div style={{ padding:"14px 16px", background:"rgba(243,156,18,0.1)", border:`1px solid ${C.pending}`, borderRadius:8, marginBottom:12 }}>
-            <div style={{ fontFamily:"Rubik", fontSize:13, color:C.pending, fontWeight:600 }}>⏳ Pago en revisión</div>
-            <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, marginTop:4 }}>{aiMsg || "Vamos a confirmar tu reserva en breve."}</div>
+          <div style={{ padding:"12px 14px", background:"rgba(243,156,18,0.1)", border:`1px solid ${C.pending}`, borderRadius:8, marginBottom:12 }}>
+            <div style={{ fontFamily:"Rubik", fontSize:13, color:C.pending, fontWeight:600 }}>⏳ En revisión manual</div>
+            <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, marginTop:4 }}>{aiMsg}</div>
           </div>
         )}
         {aiStatus==="error" && (
-          <div style={{ padding:"14px 16px", background:"rgba(231,76,60,0.1)", border:`1px solid ${C.danger}`, borderRadius:8, marginBottom:12 }}>
+          <div style={{ padding:"12px 14px", background:"rgba(231,76,60,0.1)", border:`1px solid ${C.danger}`, borderRadius:8, marginBottom:12 }}>
             <div style={{ fontFamily:"Rubik", fontSize:13, color:C.danger }}>{aiMsg}</div>
           </div>
         )}
@@ -746,97 +759,30 @@ function App() {
         {aiStatus==="ok" || aiStatus==="pending" ? (
           <Btn onClick={()=>go("success")}>Ver mi reserva →</Btn>
         ) : (
-          <Btn onClick={()=>analyzeComprobante(comprobante)} disabled={!comprobante || aiStatus==="loading"}>
-            {aiStatus==="loading" ? "Verificando..." : "Verificar comprobante"}
+          <Btn onClick={()=>submitComprobante(comprobante)} disabled={!comprobante || aiStatus==="loading"}>
+            {aiStatus==="loading" ? "Verificando..." : "Confirmar reserva →"}
           </Btn>
         )}
+
+        {/* Sin comprobante ahora */}
+        <div style={{ marginTop:16, padding:"14px 16px", background:"rgba(245,239,224,0.03)", border:`1px solid ${C.creamDim}`, borderRadius:8 }}>
+          <div style={{ fontFamily:"Rubik", fontSize:12, fontWeight:300, color:C.muted, lineHeight:1.7 }}>
+            ¿No podés enviar el comprobante ahora?<br/>
+            Envialo luego por WhatsApp al{" "}
+            <a href="https://wa.me/543735476444" target="_blank" rel="noreferrer"
+              style={{ color:C.sol, textDecoration:"none", fontWeight:500 }}>+54 3735 476444</a>
+            {" "}para confirmar tu reserva.<br/>
+            <span style={{ color:C.danger, fontSize:11 }}>
+              Reservas sin confirmar se liberan el día del evento.
+            </span>
+          </div>
+        </div>
+
       </div>
     </div>
   );
 
-  /* ════ PAYMENT ════ */
-  if (view==="payment") return (
-    <div style={{ ...base, background:"#0d0d0d", padding:"40px 28px 64px" }}>
-      <style>{GF}</style>
-
-
-
-      <div style={inner}>
-        <Back onClick={()=>go("form")} />
-
-        {/* Resumen */}
-        <div style={{ marginBottom:32 }}>
-          <div style={{ fontFamily:"Rubik", fontSize:22, fontWeight:700, color:C.cream, marginBottom:4 }}>La Guitarreada</div>
-          <div style={{ fontFamily:"Rubik", fontSize:12, color:C.muted, letterSpacing:2, textTransform:"uppercase", marginBottom:24 }}>Sábado 18.04 · 22hs</div>
-          <div style={{ fontFamily:"Rubik", fontSize:10, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:2, marginBottom:6 }}>Total a abonar</div>
-          <div style={{ fontFamily:"Rubik", fontSize:52, fontWeight:200, color:C.sol, lineHeight:1 }}>${fmt(pending?.total)}</div>
-          <div style={{ fontFamily:"Rubik", fontSize:13, color:C.muted, marginTop:6 }}>
-            {pending?.cantidad} entrada{pending?.cantidad>1?"s":""} · {pending?.nombre}
-          </div>
-        </div>
-
-        <HR />
-
-        {/* Pasos */}
-        <div style={{ marginBottom:28 }}>
-          {[
-            ["01", "Tocá el botón para abrir el pago"],
-            ["02", "Completá el pago en MercadoPago"],
-            ["03", "Volvé aquí y confirmá tu reserva"],
-          ].map(([n,t]) => (
-            <div key={n} style={{ display:"flex", gap:14, marginBottom:14, alignItems:"flex-start" }}>
-              <span style={{ fontFamily:"Rubik", fontSize:10, fontWeight:600, color:C.sol, minWidth:22 }}>{n}</span>
-              <span style={{ fontFamily:"Rubik", fontSize:14, fontWeight:300, color:C.cream, lineHeight:1.6 }}>{t}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Botón pagar */}
-        {mpError && (
-          <div style={{ padding:"12px 14px", background:"rgba(231,76,60,0.1)", border:`1px solid rgba(231,76,60,0.3)`, borderRadius:8, marginBottom:12 }}>
-            <span style={{ fontFamily:"Rubik", fontSize:13, color:C.danger }}>{mpError}</span>
-          </div>
-        )}
-        <button
-          onClick={async () => {
-            setMpLoading(true); setMpError("");
-            try {
-              const r = await fetch(`${BACKEND_URL}/api/create-preference`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  nombre:   pending?.nombre,
-                  email:    pending?.email,
-                  telefono: pending?.telefono,
-                  cantidad: pending?.cantidad,
-                  total:    pending?.total,
-                }),
-              });
-              const data = await r.json();
-              if (!r.ok) throw new Error(data.error || "Error al crear el pago");
-              // Guardar pending en storage para recuperar al volver de MP
-              await window.storage.set("qp_p", JSON.stringify(pending)).catch(()=>{});
-              // Redirigir a MP (no iframe, para que back_urls funcionen)
-              window.location.href = data.init_point;
-            } catch(e) {
-              setMpError("No se pudo conectar con MercadoPago. Intentá de nuevo.");
-            } finally {
-              setMpLoading(false);
-            }
-          }}
-          disabled={mpLoading}
-          style={{ width:"100%", padding:"17px 20px",
-            background: mpLoading ? "rgba(0,158,227,0.5)" : "#009EE3",
-            color:"#fff", border:"none", textAlign:"center", fontFamily:"Rubik",
-            fontSize:14, fontWeight:600, letterSpacing:2, textTransform:"uppercase",
-            cursor: mpLoading ? "not-allowed" : "pointer", borderRadius:"99px", marginBottom:10,
-            display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
-          {mpLoading ? "Conectando…" : "Pagar con MercadoPago"}
-        </button>
-
-        <HR my={20} />
-
-        <div style={{ padding:"14px 16px", background:"rgba(204,154,30,0.08)", border:`1px solid rgba(204,154,30,0.2)`, borderRadius:8, marginBottom:12 }}>
+  rderRadius:8, marginBottom:12 }}>
           <span style={{ fontFamily:"Rubik", fontSize:13, color:C.muted }}>
             Una vez que completes el pago en MercadoPago vas a ser redirigido automáticamente para confirmar tu reserva.
           </span>
@@ -918,12 +864,19 @@ function App() {
           ))}
           {tab==="reservas" && (
             <button onClick={()=>{
-              const h=["ID","Nombre","Email","WhatsApp","Personas","Total","Estado","Fecha"];
-              const rows=reservas.map(r=>[r.id,r.nombre,r.email,r.telefono,r.cantidad,r.total,r.status,r.createdAt]);
+              const h=["N° Reserva","Nombre","Email","WhatsApp","Personas","Total","Método Pago","Estado","Fecha","Check-in"];
+              const rows=reservas.map(r=>[
+                r.id, r.nombre, r.email, r.telefono, r.cantidad,
+                "$"+new Intl.NumberFormat("es-AR").format(r.total),
+                r.metodoPago||"transferencia",
+                r.status==="confirmado"?"✓ CONFIRMADO":r.status==="cancelado"?"✗ CANCELADO":"⏳ PENDIENTE",
+                r.createdAt,
+                "" // columna vacía para marcar el día del evento
+              ]);
               const csv=[h,...rows].map(r=>r.map(v=>`"${v}"`).join(",")).join("\n");
               const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
               const url=URL.createObjectURL(blob);
-              Object.assign(document.createElement("a"),{href:url,download:"reservas_quepena.csv"}).click();
+              Object.assign(document.createElement("a"),{href:url,download:"reservas_guitarreada_18abr.csv"}).click();
               URL.revokeObjectURL(url);
             }} style={{ marginLeft:"auto", background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:10, fontFamily:"Rubik", letterSpacing:2, textTransform:"uppercase", paddingBottom:10 }}>↓ CSV</button>
           )}
@@ -949,7 +902,7 @@ function App() {
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:5 }}>
                       <div>
                         <div style={{ fontFamily:"Rubik", fontSize:15, fontWeight:500, color:C.cream }}>{r.nombre}</div>
-                        <div style={{ fontFamily:"Rubik", fontSize:12, fontWeight:300, color:C.muted, marginTop:2 }}>{r.email} · {r.telefono}</div>
+                        <div style={{ fontFamily:"Rubik", fontSize:12, fontWeight:300, color:C.muted, marginTop:2 }}>{r.email} · {r.telefono} · CUIT: {r.cuit||"—"}</div>
                       </div>
                       <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                         <span style={{ fontFamily:"Rubik", fontSize:9, color:sc[r.status], textTransform:"uppercase", letterSpacing:1.5 }}>{r.status}</span>
