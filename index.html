@@ -11,24 +11,29 @@
 <!-- Storage polyfill for standalone -->
 <script>
 // Simple storage using localStorage
+// Storage con fallback en memoria para cuando localStorage está bloqueado (ej: Edge tracking prevention)
+var _memStore = {};
 window.storage = {
-  get: (key) => {
+  get: function(key) {
     try {
-      const v = localStorage.getItem(key);
-      return v ? Promise.resolve({ key, value: v }) : Promise.reject(new Error("not found"));
-    } catch(e) { return Promise.reject(e); }
+      var v = localStorage.getItem(key);
+      if (v) return Promise.resolve({ key: key, value: v });
+      if (_memStore[key]) return Promise.resolve({ key: key, value: _memStore[key] });
+      return Promise.reject(new Error("not found"));
+    } catch(e) {
+      if (_memStore[key]) return Promise.resolve({ key: key, value: _memStore[key] });
+      return Promise.reject(e);
+    }
   },
-  set: (key, value) => {
-    try {
-      localStorage.setItem(key, value);
-      return Promise.resolve({ key, value });
-    } catch(e) { return Promise.reject(e); }
+  set: function(key, value) {
+    try { localStorage.setItem(key, value); } catch(e) {}
+    _memStore[key] = value;
+    return Promise.resolve({ key: key, value: value });
   },
-  delete: (key) => {
-    try {
-      localStorage.removeItem(key);
-      return Promise.resolve({ key, deleted: true });
-    } catch(e) { return Promise.reject(e); }
+  delete: function(key) {
+    try { localStorage.removeItem(key); } catch(e) {}
+    delete _memStore[key];
+    return Promise.resolve({ key: key, deleted: true });
   }
 };
 </script>
@@ -259,6 +264,7 @@ function App() {
   const [copied,      setCopied]      = useState("");
   const [filter,   setFilter]   = useState("todas");
   const [tab,      setTab]      = useState("reservas");
+  const reservaConfirmadaRef = React.useRef(null); // sync ref para la pantalla de éxito
 
   useEffect(() => {
     const S = window.storage;
@@ -361,7 +367,19 @@ function App() {
     if (!form.tel.trim()) return setFormErr("El WhatsApp es obligatorio.");
     if (form.qty > lib) return setFormErr("No hay suficiente cupo disponible.");
     setFormErr("");
-    setPayMethod(null);
+    setPayMethod("transfer");
+    const nuevoPending = {
+      id: genId(),
+      nombre: form.nombre.trim(),
+      email: form.email.trim(),
+      telefono: form.tel.trim(),
+      cantidad: form.qty,
+      total: form.qty * precio,
+      status: "pendiente",
+      createdAt: new Date().toLocaleString("es-AR"),
+      metodoPago: "transferencia",
+    };
+    setPending(nuevoPending);
     go("payment-transfer");
   };
 
@@ -646,7 +664,7 @@ function App() {
       <div style={{ marginBottom:18 }}>
         <div style={{ fontFamily:"Rubik",fontSize:8,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:10 }}>Subí tu comprobante</div>
         <div style={{ fontFamily:"Rubik",fontSize:12,fontWeight:300,color:C.muted,marginBottom:12,lineHeight:1.6 }}>
-          Una vez realizada la transferencia, enviá el comprobante por WhatsApp para que confirmemos tu reserva.
+          Subí la foto del comprobante para confirmar tu reserva desde acá. Si preferís, también podés enviarlo por WhatsApp al número de abajo y lo confirmamos manualmente.
         </div>
         <label style={{ display:"block",cursor:"pointer" }}>
           <input type="file" accept="image/*" style={{ display:"none" }} onChange={async e=>{
@@ -690,8 +708,35 @@ function App() {
         </div>
       </div>
 
-      <Btn onClick={()=>{ go("success"); }} disabled={!comprobante}>
-        Ya envié el comprobante →
+      <Btn onClick={async ()=>{
+        // Construir reserva con todos los datos frescos del form + comprobante
+        const base = pending && pending.nombre ? pending : {
+          id: genId(),
+          nombre: form.nombre.trim(),
+          email: form.email.trim(),
+          telefono: form.tel.trim(),
+          cantidad: form.qty,
+          total: totalTransfer,
+          createdAt: new Date().toLocaleString("es-AR"),
+          metodoPago: "transferencia",
+        };
+        const nuevaReserva = {
+          ...base,
+          comprobante: comprobante,
+          status: "pendiente",
+        };
+        // Guardar en ref síncronamente (setState es async, no llega a tiempo)
+        reservaConfirmadaRef.current = nuevaReserva;
+        setPending(nuevaReserva);
+        const yaExiste = reservas.find(r => r.id === nuevaReserva.id);
+        if (!yaExiste) {
+          const u = [...reservas, nuevaReserva];
+          setReservas(u);
+          try { await saveR(u); } catch(e) { console.warn("saveR:", e); }
+        }
+        go("success");
+      }} disabled={!comprobante}>
+        Confirmar reserva →
       </Btn>
       {!comprobante&&<div style={{ fontFamily:"Rubik",fontSize:11,color:"rgba(245,239,224,.3)",textAlign:"center",marginTop:8 }}>Subí el comprobante para continuar</div>}
     </PayShell>
@@ -702,30 +747,46 @@ function App() {
   if (view==="payment") { go("payment-transfer"); return null; }
 
   /* ════ SUCCESS ════ */
-  if (view==="success") return (
+  if (view==="success") {
+    // Leer del ref síncronamente primero (setPending es async y puede no haber llegado)
+    const sd = reservaConfirmadaRef.current || (pending && pending.nombre ? pending : {
+      nombre: form.nombre.trim(),
+      email: form.email.trim(),
+      cantidad: form.qty,
+      total: form.qty * precio,
+      id: "",
+    });
+    return (
     <div style={{ ...base, justifyContent:"center" }}>
       <style>{GF}</style>
       <div style={{ ...inner, textAlign:"center" }}>
         <LogoWhite w={140} style={{ margin:"0 auto 44px" }} />
-        <div style={{ fontFamily:"Rubik", fontSize:11, fontWeight:600, color:C.success, textTransform:"uppercase", letterSpacing:3, marginBottom:8 }}>Reserva recibida</div>
+        <div style={{ fontFamily:"Rubik", fontSize:11, fontWeight:600, color:C.success, textTransform:"uppercase", letterSpacing:3, marginBottom:8 }}>✓ Reserva recibida</div>
         <p style={{ fontFamily:"Rubik", fontSize:14, fontWeight:300, color:C.muted, lineHeight:1.8, margin:"12px 0 32px" }}>
-          Tu pago está siendo verificado.<br/>Te confirmamos por WhatsApp o email.
+          Revisaremos tu comprobante y te confirmamos<br/>por WhatsApp o email a la brevedad.
         </p>
         <div style={{ textAlign:"left", marginBottom:24 }}>
-          <Row label="Nombre"   value={pending?.nombre} />
-          <Row label="Email"    value={pending?.email} />
-          <Row label="Entradas" value={`${pending?.cantidad} persona${pending?.cantidad>1?"s":""}`} />
-          <Row label="Total"    value={`$${fmt(pending?.total)}`} accent />
+          <Row label="Nombre"   value={sd.nombre} />
+          <Row label="Email"    value={sd.email} />
+          <Row label="Entradas" value={`${sd.cantidad} persona${sd.cantidad>1?"s":""}`} />
+          <Row label="Total"    value={`$${fmt(sd.total)}`} accent />
         </div>
-        <div style={{ fontFamily:"Rubik", fontSize:10, color:C.muted, letterSpacing:2, marginBottom:32 }}>
-          Reserva <span style={{ color:C.sol, letterSpacing:3 }}>#{pending?.id}</span>
+        {sd.id && <div style={{ fontFamily:"Rubik", fontSize:10, color:C.muted, letterSpacing:2, marginBottom:32 }}>
+          Reserva <span style={{ color:C.sol, letterSpacing:3 }}>#{sd.id}</span>
+        </div>}
+        <div style={{ background:"rgba(37,211,102,.06)",border:"1px solid rgba(37,211,102,.2)",borderRadius:10,padding:"14px 16px",marginBottom:28,textAlign:"left" }}>
+          <div style={{ fontFamily:"Rubik",fontSize:12,fontWeight:600,color:"rgba(37,211,102,.85)",marginBottom:4 }}>¿No recibís confirmación?</div>
+          <div style={{ fontFamily:"Rubik",fontSize:12,color:C.muted,lineHeight:1.6 }}>
+            Escribinos al <strong style={{ color:C.cream }}>+54 373 547-6444</strong> con tu comprobante y lo confirmamos al toque.
+          </div>
         </div>
         <Btn onClick={goHome}>Volver al inicio</Btn>
       </div>
     </div>
-  );
+    );
+  }
 
-  /* ════ ADMIN LOGIN ════ */
+/* ════ ADMIN LOGIN ════ */
   if (view==="admin-login") return (
     <PayShell onBack={goHome} cfg={cfg} heroB64={HERO_B64}>
       <div style={{ textAlign:"center",marginBottom:32 }}>
@@ -815,6 +876,18 @@ function App() {
                     <span style={{ fontFamily:"Rubik", fontSize:13, fontWeight:300, color:C.muted }}>
                       {r.cantidad} persona{r.cantidad>1?"s":""} · <span style={{ color:C.sol }}>${fmt(r.total)}</span>
                     </span>
+                    {/* Comprobante visible para el admin */}
+                    {r.comprobante && (
+                      <div style={{ marginTop:10 }}>
+                        <div style={{ fontFamily:"Rubik",fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:6 }}>Comprobante</div>
+                        <img
+                          src={`data:image/jpeg;base64,${r.comprobante}`}
+                          style={{ maxWidth:"100%", maxHeight:200, objectFit:"contain", borderRadius:6, border:`1px solid ${C.creamDim}`, cursor:"pointer" }}
+                          onClick={()=>{ const w=window.open(); w.document.write(`<img src="data:image/jpeg;base64,${r.comprobante}" style="max-width:100%;"/>`); }}
+                          title="Click para ver en tamaño completo"
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })}
