@@ -332,26 +332,19 @@ function App() {
   const saveEventosList = async (lista) => {
     setEventos(lista);
     try { localStorage.setItem("qp_eventos", JSON.stringify(lista)); } catch(e) {}
-    // Sincronizar cada evento en D1
-    for (var ev of lista) {
-      try {
-        await fetch("/api/db-eventos", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(ev),
-        });
-      } catch(e) { console.warn("POST evento D1:", e); }
-    }
+    // Guardar en KV (fuente de verdad — sincroniza todos los dispositivos)
+    try {
+      await fetch("/api/save-eventos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(lista),
+      });
+    } catch(e) { console.warn("save-eventos:", e); }
   };
 
   const toggleEventoD1 = async (evId, activo) => {
-    try {
-      await fetch("/api/db-eventos", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: evId, activo }),
-      });
-    } catch(e) { console.warn("PATCH evento:", e); }
+    // Se llama después de actualizar el estado local y localStorage en toggleEvento
+    // saveEventosList ya sincroniza con KV — no hace falta fetch adicional aquí
   };
 
   const saveS = async d => {
@@ -401,28 +394,26 @@ function App() {
         try { var h=m.heroBanner||""; var rest=Object.assign({},m); delete rest.heroBanner; localStorage.setItem("qp_s",JSON.stringify(rest)); if(h) localStorage.setItem("qp_banner",h); } catch(e) {}
       }).catch(function(e){ console.warn("get-config:",e); });
 
-    // Cargar eventos desde D1 (fuente de verdad)
-    fetch("/api/db-eventos")
+    // Cargar eventos desde KV (fuente de verdad — sincroniza todos los dispositivos)
+    fetch("/api/get-eventos")
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(evList){
         if (!evList || !Array.isArray(evList)) return;
-        // D1 devuelve activo como 0/1 (SQLite) — convertir a boolean
-        evList = evList.map(function(ev){ return Object.assign({},ev,{activo:ev.activo===1||ev.activo===true}); });
         setEventos(evList);
         try { localStorage.setItem("qp_eventos", JSON.stringify(evList)); } catch(e) {}
         if (evList.length > 0) setTabEvento(function(prev){ return prev || evList[0].id; });
 
-        // Cargar reservas de cada evento desde D1
+        // Cargar reservas de cada evento desde KV
         evList.forEach(function(ev) {
-          fetch("/api/db-reservas?evId=" + ev.id)
+          fetch("/api/get-reservas?evId=" + ev.id)
             .then(function(r){ return r.ok ? r.json() : []; })
             .then(function(lista){
               if (!Array.isArray(lista)) lista = [];
               setReservasMap(function(prev){ return Object.assign({}, prev, { [ev.id]: lista }); });
               try { localStorage.setItem("qp_r_"+ev.id, JSON.stringify(lista)); } catch(e) {}
-            }).catch(function(e){ console.warn("get-reservas D1 "+ev.id+":", e); });
+            }).catch(function(e){ console.warn("get-reservas KV "+ev.id+":", e); });
         });
-      }).catch(function(e){ console.warn("get-eventos D1:",e); });
+      }).catch(function(e){ console.warn("get-eventos KV:",e); });
   }, []);
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -505,16 +496,7 @@ function App() {
     var ev = Object.assign({ id: genId(), createdAt: new Date().toISOString(), activo: true }, evForm);
     if (!esNuevo) ev.id = evForm.id;
     var nuevaLista = esNuevo ? [...eventos, ev] : eventos.map(e => e.id === ev.id ? ev : e);
-    // Guardar en D1
-    try {
-      await fetch("/api/db-eventos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(ev),
-      });
-    } catch(e) { console.warn("guardarEvento D1:", e); }
-    setEventos(nuevaLista);
-    try { localStorage.setItem("qp_eventos", JSON.stringify(nuevaLista)); } catch(e) {}
+    await saveEventosList(nuevaLista);
     setEvForm(null); setEvOk(true); setTimeout(()=>setEvOk(false),2000);
     if (esNuevo) setTabEvento(ev.id);
   };
@@ -522,10 +504,7 @@ function App() {
   // ── Desactivar/activar evento ───────────────────────────────────────────────
   const toggleEvento = async (evId) => {
     var nuevaLista = eventos.map(e => e.id===evId ? Object.assign({},e,{activo:!e.activo}) : e);
-    const ev = nuevaLista.find(e=>e.id===evId);
-    setEventos(nuevaLista);
-    try { localStorage.setItem("qp_eventos", JSON.stringify(nuevaLista)); } catch(e) {}
-    await toggleEventoD1(evId, ev.activo);
+    await saveEventosList(nuevaLista);
   };
 
   // Eventos activos visibles en landing
