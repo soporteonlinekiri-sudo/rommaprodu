@@ -278,34 +278,80 @@ function App() {
 
   // ── Storage — servidor como fuente de verdad, localStorage como caché ────────
   // CRÍTICO: cada evento tiene su propia clave — las reservas NUNCA se borran
+  // saveReservasEv — escribe a D1 (fuente de verdad) + caché local
+  // NO se usa para crear reservas nuevas — eso lo hace saveReservaNew
+  // Solo para cambios de status desde el admin
   const saveReservasEv = async (evId, lista) => {
-    // 1. Actualizar estado React inmediatamente (UI reactiva)
     setReservasMap(prev => ({ ...prev, [evId]: lista }));
-    // 2. Caché local
     try { localStorage.setItem("qp_r_" + evId, JSON.stringify(lista)); } catch(e) {}
-    // 3. Servidor (fuente de verdad — sincroniza todos los dispositivos)
+    // Persistir cada reserva modificada en D1
+    for (var r of lista) {
+      try {
+        await fetch("/api/db-reservas", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: r.id, status: r.status }),
+        });
+      } catch(e) { console.warn("PATCH reserva:", e); }
+    }
+  };
+
+  // saveReservaNew — crea una reserva nueva en D1 + sube comprobante a R2
+  const saveReservaNew = async (reserva, base64, tipo, nombre) => {
+    var comprobanteKey = null;
+    // 1. Subir comprobante a R2 si existe
+    if (base64) {
+      try {
+        var upRes = await fetch("/api/upload-comprobante", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ base64, tipo, nombre, reservaId: reserva.id }),
+        });
+        var upJson = await upRes.json();
+        if (upJson.key) comprobanteKey = upJson.key;
+      } catch(e) { console.warn("upload comprobante:", e); }
+    }
+    // 2. Guardar reserva en D1 (sin base64 — solo la key de R2)
+    var r = Object.assign({}, reserva, { comprobanteKey, comprobante: undefined });
     try {
-      await fetch("/api/save-reservas", {
+      await fetch("/api/db-reservas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ evId, reservas: lista }),
+        body: JSON.stringify(r),
       });
-    } catch(e) { console.warn("saveReservas server:", e); }
+    } catch(e) { console.warn("POST reserva D1:", e); }
+    // 3. Actualizar caché local y estado React
+    var listaLocal = reservasMap[reserva.eventoId] || [];
+    var nueva = Object.assign({}, reserva, { comprobanteKey, comprobante: base64||null });
+    var nuevaLista = [...listaLocal, nueva];
+    setReservasMap(prev => ({ ...prev, [reserva.eventoId]: nuevaLista }));
+    try { localStorage.setItem("qp_r_"+reserva.eventoId, JSON.stringify(nuevaLista)); } catch(e) {}
+    return comprobanteKey;
   };
 
   const saveEventosList = async (lista) => {
-    // 1. Actualizar estado React inmediatamente
     setEventos(lista);
-    // 2. Caché local
     try { localStorage.setItem("qp_eventos", JSON.stringify(lista)); } catch(e) {}
-    // 3. Servidor (fuente de verdad)
+    // Sincronizar cada evento en D1
+    for (var ev of lista) {
+      try {
+        await fetch("/api/db-eventos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(ev),
+        });
+      } catch(e) { console.warn("POST evento D1:", e); }
+    }
+  };
+
+  const toggleEventoD1 = async (evId, activo) => {
     try {
-      await fetch("/api/save-eventos", {
-        method: "POST",
+      await fetch("/api/db-eventos", {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(lista),
+        body: JSON.stringify({ id: evId, activo }),
       });
-    } catch(e) { console.warn("saveEventos server:", e); }
+    } catch(e) { console.warn("PATCH evento:", e); }
   };
 
   const saveS = async d => {
@@ -355,26 +401,28 @@ function App() {
         try { var h=m.heroBanner||""; var rest=Object.assign({},m); delete rest.heroBanner; localStorage.setItem("qp_s",JSON.stringify(rest)); if(h) localStorage.setItem("qp_banner",h); } catch(e) {}
       }).catch(function(e){ console.warn("get-config:",e); });
 
-    // Cargar eventos desde servidor
-    fetch("/api/get-eventos")
+    // Cargar eventos desde D1 (fuente de verdad)
+    fetch("/api/db-eventos")
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(evList){
         if (!evList || !Array.isArray(evList)) return;
+        // D1 devuelve activo como 0/1 (SQLite) — convertir a boolean
+        evList = evList.map(function(ev){ return Object.assign({},ev,{activo:ev.activo===1||ev.activo===true}); });
         setEventos(evList);
         try { localStorage.setItem("qp_eventos", JSON.stringify(evList)); } catch(e) {}
         if (evList.length > 0) setTabEvento(function(prev){ return prev || evList[0].id; });
 
-        // Cargar reservas de cada evento desde servidor
+        // Cargar reservas de cada evento desde D1
         evList.forEach(function(ev) {
-          fetch("/api/get-reservas?evId=" + ev.id)
+          fetch("/api/db-reservas?evId=" + ev.id)
             .then(function(r){ return r.ok ? r.json() : []; })
             .then(function(lista){
               if (!Array.isArray(lista)) lista = [];
               setReservasMap(function(prev){ return Object.assign({}, prev, { [ev.id]: lista }); });
               try { localStorage.setItem("qp_r_"+ev.id, JSON.stringify(lista)); } catch(e) {}
-            }).catch(function(e){ console.warn("get-reservas "+ev.id+":", e); });
+            }).catch(function(e){ console.warn("get-reservas D1 "+ev.id+":", e); });
         });
-      }).catch(function(e){ console.warn("get-eventos:",e); });
+      }).catch(function(e){ console.warn("get-eventos D1:",e); });
   }, []);
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -407,9 +455,20 @@ function App() {
   };
 
   const chgSt = async (evId, rId, status) => {
+    // 1. Actualizar UI inmediatamente
     const lista = reservasMap[evId] || [];
     const u = lista.map(r => r.id === rId ? Object.assign({},r,{status}) : r);
-    await saveReservasEv(evId, u);
+    setReservasMap(prev => ({ ...prev, [evId]: u }));
+    try { localStorage.setItem("qp_r_"+evId, JSON.stringify(u)); } catch(e) {}
+    // 2. Persistir en D1
+    try {
+      await fetch("/api/db-reservas", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: rId, status }),
+      });
+    } catch(e) { console.warn("PATCH chgSt:", e); }
+    // 3. Enviar email si se confirma
     if (status === "confirmado") {
       const r = lista.find(x => x.id === rId);
       if (r) {
@@ -443,16 +502,19 @@ function App() {
   const guardarEvento = async () => {
     if (!evForm.nombre || !evForm.fecha) { alert("Nombre y fecha son obligatorios."); return; }
     var esNuevo = !evForm.id;
-    var ev = Object.assign({ id: genId(), createdAt: new Date().toLocaleString("es-AR"), activo: true }, evForm);
-    var nuevaLista;
-    if (esNuevo) {
-      nuevaLista = [...eventos, ev];
-      // Inicializar reservas vacías para este evento (key separada, nunca se borra)
-      await saveReservasEv(ev.id, []);
-    } else {
-      nuevaLista = eventos.map(e => e.id === ev.id ? ev : e);
-    }
-    await saveEventosList(nuevaLista);
+    var ev = Object.assign({ id: genId(), createdAt: new Date().toISOString(), activo: true }, evForm);
+    if (!esNuevo) ev.id = evForm.id;
+    var nuevaLista = esNuevo ? [...eventos, ev] : eventos.map(e => e.id === ev.id ? ev : e);
+    // Guardar en D1
+    try {
+      await fetch("/api/db-eventos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ev),
+      });
+    } catch(e) { console.warn("guardarEvento D1:", e); }
+    setEventos(nuevaLista);
+    try { localStorage.setItem("qp_eventos", JSON.stringify(nuevaLista)); } catch(e) {}
     setEvForm(null); setEvOk(true); setTimeout(()=>setEvOk(false),2000);
     if (esNuevo) setTabEvento(ev.id);
   };
@@ -460,7 +522,10 @@ function App() {
   // ── Desactivar/activar evento ───────────────────────────────────────────────
   const toggleEvento = async (evId) => {
     var nuevaLista = eventos.map(e => e.id===evId ? Object.assign({},e,{activo:!e.activo}) : e);
-    await saveEventosList(nuevaLista);
+    const ev = nuevaLista.find(e=>e.id===evId);
+    setEventos(nuevaLista);
+    try { localStorage.setItem("qp_eventos", JSON.stringify(nuevaLista)); } catch(e) {}
+    await toggleEventoD1(evId, ev.activo);
   };
 
   // Eventos activos visibles en landing
@@ -626,6 +691,22 @@ function App() {
 
   /* ════ PAYMENT TRANSFER ════ */
   if (view==="payment-transfer") {
+    // Generar mensaje de WhatsApp con todos los datos del usuario
+    const waMsg = encodeURIComponent(
+      "¡Hola! Quiero confirmar mi reserva 🎸\n\n" +
+      "📅 *Evento:* " + (evActivo ? evActivo.nombre : "") + "\n" +
+      "🗓 " + (evActivo ? evActivo.fecha : "") + " · " + (evActivo ? evActivo.hora : "") + "\n" +
+      "📍 " + (evActivo ? evActivo.lugar : "") + "\n\n" +
+      "👤 *Mis datos:*\n" +
+      "• Nombre: " + form.nombre.trim() + "\n" +
+      "• Email: " + form.email.trim() + "\n" +
+      "• WhatsApp: " + form.tel.trim() + "\n" +
+      "• Personas: " + form.qty + "\n" +
+      "• Total abonado: $" + fmt(totalTransfer) + "\n\n" +
+      "💳 Ya realicé la transferencia al alias *ROMMAPRODU*. Adjunto el comprobante para confirmar mi reserva. ¡Gracias!"
+    );
+    const waUrl = "https://wa.me/543735476444?text=" + waMsg;
+
     return (
     <PayShell onBack={()=>go("form")} cfg={cfg} heroB64={HERO_B64}>
       <div style={{ marginBottom:18 }}>
@@ -661,128 +742,52 @@ function App() {
         </div>
       </div>
       <HR />
-      <div style={{ marginBottom:18 }}>
-        <div style={{ fontFamily:"Rubik",fontSize:8,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:2,marginBottom:10 }}>Subí tu comprobante</div>
-        <div style={{ fontFamily:"Rubik",fontSize:12,fontWeight:300,color:C.muted,marginBottom:12,lineHeight:1.6 }}>
-          Subí la foto del comprobante para confirmar tu reserva desde acá. Si preferís, también podés enviarlo por WhatsApp al número de abajo y lo confirmamos manualmente.
+
+      {/* Aviso envío de comprobante */}
+      <div style={{ background:"rgba(204,154,30,.07)",border:"1px solid rgba(204,154,30,.22)",borderRadius:12,padding:"16px 18px",marginBottom:22 }}>
+        <div style={{ fontFamily:"Rubik",fontSize:13,fontWeight:600,color:C.sol,marginBottom:8 }}>📲 ¿Cómo confirmar tu reserva?</div>
+        <div style={{ fontFamily:"Rubik",fontSize:12,fontWeight:300,color:"rgba(245,239,224,.65)",lineHeight:1.75 }}>
+          Una vez que hayas realizado la transferencia, tocá el botón de abajo.<br/>
+          Te vamos a llevar a WhatsApp con un mensaje ya armado con tus datos — solo adjuntá el comprobante y envialo. <strong style={{ color:C.cream }}>Así confirmamos tu reserva al instante.</strong>
         </div>
-        <label style={{ display:"block",cursor:"pointer" }}>
-          {/* accept con PDF + imágenes — en iOS/Android abre el picker de archivos (no solo galería) */}
-          <input type="file" accept="image/*,application/pdf,.pdf" style={{ display:"none" }}
-            onChange={async e=>{
-              const file=e.target.files&&e.target.files[0];
-              if(!file) return;
-              const reader=new FileReader();
-              reader.onload=function(ev){
-                // Guardar base64 + tipo para saber si es PDF o imagen
-                const b64 = ev.target.result.split(",")[1];
-                setComprobante(b64);
-                setComprobanteTipo(file.type);
-                setComprobanteNombre(file.name);
-              };
-              reader.readAsDataURL(file);
-            }}
-          />
-          <div style={{ border:`1.5px dashed ${comprobante?C.sol:C.dim}`,borderRadius:10,padding:"20px",textAlign:"center",background:comprobante?"rgba(204,154,30,.05)":"transparent" }}>
-            {comprobante ? (
-              comprobanteTipo==="application/pdf" ? (
-                /* Preview PDF */
-                <div>
-                  <div style={{ fontSize:36,marginBottom:8 }}>📑</div>
-                  <div style={{ fontFamily:"Rubik",fontSize:13,fontWeight:500,color:C.sol,marginBottom:4 }}>
-                    ✓ {comprobanteNombre||"comprobante.pdf"}
-                  </div>
-                  <div style={{ fontFamily:"Rubik",fontSize:10,color:"rgba(245,239,224,.35)" }}>PDF adjunto · Tocá para cambiar</div>
-                </div>
-              ) : (
-                /* Preview imagen */
-                <div>
-                  <img src={`data:${comprobanteTipo||"image/jpeg"};base64,${comprobante}`}
-                    style={{ maxWidth:"100%",maxHeight:140,objectFit:"contain",borderRadius:4,marginBottom:8 }}/>
-                  <div style={{ fontFamily:"Rubik",fontSize:11,color:C.sol }}>✓ Tocá para cambiar</div>
-                </div>
-              )
-            ) : (
-              <div>
-                <div style={{ fontSize:28,marginBottom:8 }}>📎</div>
-                <div style={{ fontFamily:"Rubik",fontSize:13,fontWeight:500,color:C.muted,marginBottom:4 }}>Adjuntar comprobante</div>
-                <div style={{ fontFamily:"Rubik",fontSize:10,color:"rgba(245,239,224,.28)",lineHeight:1.6 }}>
-                  PDF · JPG · PNG<br/>
-                  <span style={{ fontSize:9,letterSpacing:.5 }}>Tocá para abrir tus archivos</span>
-                </div>
-              </div>
-            )}
+      </div>
+
+      {/* Botón principal → WhatsApp */}
+      <a href={waUrl} target="_blank" rel="noopener noreferrer" style={{ display:"block", textDecoration:"none" }}>
+        <div style={{
+          display:"flex", justifyContent:"space-between", alignItems:"center",
+          background:"#25D366", borderRadius:12, padding:"16px 22px",
+          cursor:"pointer", marginBottom:12
+        }}>
+          <div>
+            <div style={{ fontFamily:"Rubik",fontSize:10,fontWeight:600,color:"rgba(0,0,0,.45)",textTransform:"uppercase",letterSpacing:2,marginBottom:3 }}>Siguiente paso</div>
+            <div style={{ fontFamily:"Rubik",fontSize:17,fontWeight:700,color:"#fff" }}>Continuar a WhatsApp →</div>
           </div>
-        </label>
-      </div>
-      <div style={{ background:"rgba(37,211,102,.06)",border:"1px solid rgba(37,211,102,.2)",borderRadius:10,padding:"14px 16px",marginBottom:14 }}>
-        <div style={{ fontFamily:"Rubik",fontSize:12,fontWeight:600,color:"rgba(37,211,102,.85)",marginBottom:6 }}>📱 Enviá el comprobante por WhatsApp</div>
-        <div style={{ fontFamily:"Rubik",fontSize:12,color:C.muted,lineHeight:1.65 }}>
-          Mandá el comprobante al <strong style={{ color:C.cream }}>+54 373 547-6444</strong> para que confirmemos tu reserva.<br/>
-          <span style={{ fontSize:11,color:"rgba(245,239,224,.4)" }}>También para modificaciones o consultas.</span>
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <path d="M16 2C8.268 2 2 8.268 2 16c0 2.48.644 4.81 1.77 6.84L2 30l7.36-1.73A13.93 13.93 0 0016 30c7.732 0 14-6.268 14-14S23.732 2 16 2z" fill="rgba(255,255,255,.25)"/>
+            <path d="M22.4 19.6c-.3-.15-1.77-.87-2.04-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.65.07-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.78-1.68-2.08-.18-.3-.02-.46.13-.6.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51H12.8c-.2 0-.52.07-.79.37-.27.3-1.03 1.01-1.03 2.46s1.06 2.85 1.2 3.05c.15.2 2.08 3.17 5.04 4.45.7.3 1.25.48 1.68.62.7.22 1.34.19 1.84.11.56-.08 1.77-.72 2.02-1.42.25-.7.25-1.3.17-1.42-.07-.12-.27-.2-.57-.35z" fill="#fff"/>
+          </svg>
         </div>
-        <a href="https://wa.me/543735476444" target="_blank" rel="noopener noreferrer"
-          style={{ display:"inline-block",marginTop:10,background:"rgba(37,211,102,.15)",border:"1px solid rgba(37,211,102,.3)",borderRadius:99,padding:"8px 18px",fontFamily:"Rubik",fontSize:12,fontWeight:600,color:"rgba(37,211,102,.9)",textDecoration:"none" }}>
-          Abrir WhatsApp →
-        </a>
+      </a>
+      <div style={{ fontFamily:"Rubik",fontSize:10,color:"rgba(245,239,224,.25)",textAlign:"center",lineHeight:1.6 }}>
+        El mensaje se genera automáticamente con tus datos.<br/>Solo agregá el comprobante y envialo.
       </div>
-      <div style={{ background:"rgba(204,154,30,.06)",border:"1px solid rgba(204,154,30,.18)",borderRadius:10,padding:"14px 16px",marginBottom:20 }}>
-        <div style={{ fontFamily:"Rubik",fontSize:12,fontWeight:600,color:C.sol,marginBottom:4 }}>🎂 ¿Festejás algo especial?</div>
-        <div style={{ fontFamily:"Rubik",fontSize:12,color:C.muted,lineHeight:1.65 }}>
-          Para cumpleaños u otro festejo, escribinos al <strong style={{ color:C.cream }}>+54 373 547-6444</strong> y te contamos sobre beneficios, regalos y descuentos.
-        </div>
-      </div>
-      <Btn onClick={async ()=>{
-        const base = pending && pending.nombre ? pending : {
-          id:genId(), nombre:form.nombre.trim(), email:form.email.trim(),
-          telefono:form.tel.trim(), cantidad:form.qty, total:totalTransfer,
-          createdAt:new Date().toLocaleString("es-AR"), metodoPago:"transferencia",
-          eventoId:evActivo&&evActivo.id, eventoNombre:evActivo&&evActivo.nombre,
-        };
-        const nuevaReserva = Object.assign({}, base, { comprobante:comprobante, comprobanteTipo:comprobanteTipo, comprobanteNombre:comprobanteNombre, status:"pendiente" });
-        reservaConfirmadaRef.current = nuevaReserva;
-        setPending(nuevaReserva);
-        const evId = nuevaReserva.eventoId;
-        if (evId) {
-          const lista = reservasMap[evId] || [];
-          const yaExiste = lista.find(r=>r.id===nuevaReserva.id);
-          if (!yaExiste) {
-            await saveReservasEv(evId, [...lista, nuevaReserva]);
-          }
-        }
-        go("success");
-      }}>
-        Confirmar reserva →
-      </Btn>
-      {!comprobante&&<div style={{ fontFamily:"Rubik",fontSize:11,color:"rgba(245,239,224,.3)",textAlign:"center",marginTop:8 }}>Podés continuar sin adjuntar — también podés enviar el comprobante por WhatsApp.</div>}
     </PayShell>
     );
   }
 
   /* ════ SUCCESS ════ */
   if (view==="success") {
-    const sd = reservaConfirmadaRef.current || (pending&&pending.nombre?pending:{
-      nombre:form.nombre.trim(), email:form.email.trim(), cantidad:form.qty, total:totalTransfer, id:"",
-      eventoNombre:evActivo&&evActivo.nombre,
-    });
     return (
     <div style={{ ...base, justifyContent:"center" }}>
       <style>{GF}</style>
       <div style={{ ...inner, textAlign:"center" }}>
-        <LogoWhite w={140} style={{ margin:"0 auto 44px" }} />
-        <div style={{ fontFamily:"Rubik", fontSize:11, fontWeight:600, color:C.success, textTransform:"uppercase", letterSpacing:3, marginBottom:8 }}>¡Reserva recibida!</div>
-        <p style={{ fontFamily:"Rubik", fontSize:14, fontWeight:300, color:C.muted, lineHeight:1.8, margin:"12px 0 32px" }}>
-          Tu comprobante fue enviado.<br/>Te confirmamos la reserva a la brevedad por WhatsApp o email.
+        <div style={{ fontSize:52, marginBottom:20 }}>🎸</div>
+        <div style={{ fontFamily:"Rubik", fontSize:20, fontWeight:700, color:C.cream, marginBottom:12 }}>¡Listo!</div>
+        <p style={{ fontFamily:"Rubik", fontSize:14, fontWeight:300, color:C.muted, lineHeight:1.8, margin:"0 0 32px" }}>
+          Tu mensaje de WhatsApp está listo con todos tus datos.<br/>
+          Solo enviá el comprobante de la transferencia<br/>y confirmamos tu reserva al instante.
         </p>
-        <div style={{ textAlign:"left", marginBottom:24 }}>
-          <Row label="Nombre"   value={sd.nombre} />
-          <Row label="Evento"   value={sd.eventoNombre} />
-          <Row label="Entradas" value={`${sd.cantidad} persona${sd.cantidad>1?"s":""}`} />
-          <Row label="Total"    value={`$${fmt(sd.total)}`} accent />
-        </div>
-        <div style={{ fontFamily:"Rubik", fontSize:10, color:C.muted, letterSpacing:2, marginBottom:32 }}>
-          Reserva <span style={{ color:C.sol, letterSpacing:3 }}>#{sd.id}</span>
-        </div>
         <Btn onClick={goHome}>Volver al inicio</Btn>
       </div>
     </div>
@@ -915,24 +920,27 @@ function App() {
                     {r.comprobante && (
                       <div style={{ marginTop:10 }}>
                         <div style={{ fontFamily:"Rubik",fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:6 }}>Comprobante</div>
-                        {r.comprobanteTipo==="application/pdf" ? (
-                          <div onClick={()=>{
-                            const blob = new Blob([Uint8Array.from(atob(r.comprobante),c=>c.charCodeAt(0))],{type:"application/pdf"});
-                            const url = URL.createObjectURL(blob);
-                            window.open(url);
-                          }} style={{ display:"flex",alignItems:"center",gap:10,background:"rgba(245,239,224,.05)",border:`1px solid ${C.dim}`,borderRadius:8,padding:"10px 14px",cursor:"pointer" }}>
-                            <span style={{ fontSize:24 }}>📑</span>
-                            <div>
-                              <div style={{ fontFamily:"Rubik",fontSize:12,fontWeight:500,color:C.cream }}>{r.comprobanteNombre||"comprobante.pdf"}</div>
-                              <div style={{ fontFamily:"Rubik",fontSize:10,color:C.muted }}>Click para abrir el PDF</div>
+                        {/* Comprobante: usa R2 key si existe, sino base64 local */}
+                        {(r.comprobanteKey || r.comprobante) && (() => {
+                          const src = r.comprobanteKey
+                            ? `/api/comprobante/${r.comprobanteKey}`
+                            : `data:${r.comprobanteTipo||"image/jpeg"};base64,${r.comprobante}`;
+                          const isPdf = r.comprobanteTipo==="application/pdf";
+                          return isPdf ? (
+                            <div onClick={()=>window.open(src)} style={{ display:"flex",alignItems:"center",gap:10,background:"rgba(245,239,224,.05)",border:`1px solid ${C.dim}`,borderRadius:8,padding:"10px 14px",cursor:"pointer" }}>
+                              <span style={{ fontSize:24 }}>📑</span>
+                              <div>
+                                <div style={{ fontFamily:"Rubik",fontSize:12,fontWeight:500,color:C.cream }}>{r.comprobanteNombre||"comprobante.pdf"}</div>
+                                <div style={{ fontFamily:"Rubik",fontSize:10,color:C.muted }}>Click para abrir</div>
+                              </div>
                             </div>
-                          </div>
-                        ) : (
-                          <img src={`data:${r.comprobanteTipo||"image/jpeg"};base64,${r.comprobante}`}
-                            style={{ maxWidth:"100%", maxHeight:200, objectFit:"contain", borderRadius:6, border:`1px solid ${C.creamDim}`, cursor:"pointer" }}
-                            onClick={()=>{ const w=window.open(); w.document.write(`<img src="data:${r.comprobanteTipo||"image/jpeg"};base64,${r.comprobante}" style="max-width:100%;"/>`); }}
-                            title="Click para ver completo" />
-                        )}
+                          ) : (
+                            <img src={src}
+                              style={{ maxWidth:"100%", maxHeight:200, objectFit:"contain", borderRadius:6, border:`1px solid ${C.creamDim}`, cursor:"pointer" }}
+                              onClick={()=>window.open(src)}
+                              title="Click para ver completo" />
+                          );
+                        })()}
                       </div>
                     )}
                   </div>
